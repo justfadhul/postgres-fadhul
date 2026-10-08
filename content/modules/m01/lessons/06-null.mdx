@@ -14,7 +14,7 @@ SELECT NULL = NULL             AS null_equals_null,
        NULL IS DISTINCT FROM 1 AS distinct_test;
 ```
 
-The first three columns come back NULL, not true and not false. The last two use operators made for the job and give a definite answer. `IS NULL` and `IS NOT NULL` test whether a value is missing. So `WHERE phone = NULL` never finds anything, while `WHERE phone IS NULL` finds the patients without a recorded number.
+The first three columns come back NULL, not true and not false. The last two use operators made for the job and give a definite answer. `IS NULL` and `IS NOT NULL` test whether a value is missing. So `WHERE phone = NULL` never finds anything (with the default setting `transform_null_equals = off`; turning it on rewrites `= NULL` as `IS NULL`, a crutch for old programs that you should not rely on), while `WHERE phone IS NULL` finds the patients without a recorded number.
 
 <Note term="Three-valued logic">Logic with three truth values: true, false and unknown. In PostgreSQL an unknown boolean is shown as NULL.</Note>
 
@@ -41,7 +41,7 @@ Notice also `count(diagnosis_code)`: counting a column counts only the rows wher
 
 ## AND, OR and NOT with unknown
 
-When conditions are combined, a useful rule is: treat unknown as "could be true, could be false". If the answer would be the same either way, you get that answer; otherwise the result is unknown. This query prints every combination:
+When conditions are combined, a useful rule is: treat unknown as "could be true, could be false". If the answer would be the same either way, you get that answer; otherwise the result is unknown. This query prints every combination. `CROSS JOIN` pairs every row on the left with every row on the right, so three values each way give nine rows:
 
 ```sql
 SELECT a, b,
@@ -61,6 +61,7 @@ Find the rows where one side is NULL. `false AND unknown` is false, because one 
 Suppose you want the facilities that receive no referrals: no other facility lists them as its `referral_facility_id`. Facilities at the top of a referral chain refer to nobody, so their `referral_facility_id` is NULL. The obvious query is this, and it runs without error:
 
 ```sql
+-- Expect no rows
 SELECT id, name, level
 FROM facilities
 WHERE id NOT IN (SELECT referral_facility_id FROM facilities)
@@ -82,13 +83,13 @@ WHERE NOT EXISTS (
 ORDER BY f.id;
 ```
 
-Your result now lists facilities that nobody refers to. For a facility at the top of a chain, the inner comparison with NULL is unknown, so that row simply does not count as a match, which is exactly what you meant. Adding `WHERE referral_facility_id IS NOT NULL` inside the `NOT IN` subquery also works, but it is easy to forget; prefer `NOT EXISTS`. Plain `IN` does not have this problem in a `WHERE` clause: NULLs in the list cannot create false matches, and real matches are still found.
+Your result now lists facilities that nobody refers to. When the subquery looks at a facility `r` at the top of a chain, `r.referral_facility_id = f.id` is unknown, so `r` simply does not count as a match, which is exactly what you meant. Adding `WHERE referral_facility_id IS NOT NULL` inside the `NOT IN` subquery also works, but it is easy to forget; prefer `NOT EXISTS`. Plain `IN` does not have this problem in a `WHERE` clause: NULLs in the list cannot create false matches, and real matches are still found.
 
 <QuickCheck id="m01-qc-06-3" />
 
 ## Aggregates, display and sorting
 
-Aggregates other than `count(*)` skip NULLs. `avg(x)` divides by the number of non-NULL values, not by the number of rows. And when there is nothing to add up, because no rows matched or every value was NULL, `sum` returns NULL, not 0. A pharmacy report that prints a blank for "tablets dispensed" instead of 0 usually has this cause.
+The everyday aggregates (`count(x)`, `sum`, `avg`, `min` and `max`) skip NULLs; only `count(*)` counts rows whatever they hold. (A few collecting aggregates, such as `array_agg`, keep NULLs.) `avg(x)` divides by the number of non-NULL values, not by the number of rows. And when there is nothing to add up, because no rows matched or every value was NULL, `sum` returns NULL, not 0. A pharmacy report that prints a blank for "tablets dispensed" instead of 0 usually has this cause.
 
 **COALESCE** returns its first argument that is not NULL, so `COALESCE(sum(quantity), 0)` turns "nothing" into 0, and `COALESCE(phone, 'no phone recorded')` gives a readable label. Use it for display and for totals. Do not use it to store made-up values: a haemoglobin recorded as 0 instead of NULL is a dangerous lie, while NULL is an honest "not measured".
 

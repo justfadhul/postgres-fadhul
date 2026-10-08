@@ -21,7 +21,7 @@ Compare this with `SELECT patient_id, count(*) FROM visits GROUP BY patient_id`,
 
 Notice there are two `ORDER BY`s. The one inside `OVER` decides how the numbers are given out; the one at the end of the query decides the order you see the rows in. They are independent, and you usually want both.
 
-<Note term="Window">The rows a window function looks at for the current row. An empty `OVER ()` means every row of the result, which is handy for "percentage of the total".</Note>
+<Note term="Window">The rows a window function looks at for the current row. An empty `OVER ()` means every row that survives `WHERE`, `GROUP BY` and `HAVING`, before any `LIMIT`, which is handy for "percentage of the total".</Note>
 
 ## Numbering, ranking and ties
 
@@ -113,7 +113,7 @@ ORDER BY day
 LIMIT 10;
 ```
 
-`ROWS BETWEEN 6 PRECEDING AND CURRENT ROW` means this row and the six before it: seven rows. Two details matter. First, the early rows have fewer than six rows before them, so the first day's "average" is just that day, and the second averages two days. Second, `ROWS` counts rows, not days. If a facility had a day with no visits, that day would have no row, and seven rows would stretch over eight calendar days. Either build a complete calendar first (lesson 1.7 shows how) or frame by value with `RANGE BETWEEN interval '6 days' PRECEDING AND CURRENT ROW`, which looks back six calendar days on a `date` column. Offsets with `RANGE` need PostgreSQL 11 or later.
+`ROWS BETWEEN 6 PRECEDING AND CURRENT ROW` means this row and the six before it: seven rows. Two details matter. First, the early rows have fewer than six rows before them, so the first day's "average" is just that day, and the second averages two days. Second, `ROWS` counts rows, not days. If a facility had a day with no visits, that day would have no row, and seven rows would stretch over eight calendar days. Either build a complete calendar first (lesson 1.4 shows how) or frame by value with `RANGE BETWEEN interval '6 days' PRECEDING AND CURRENT ROW`, which looks back six calendar days on a `date` column. Offsets with `RANGE` need PostgreSQL 11 or later.
 
 There is a third detail hiding in that query: the first days of March cannot see late February, because the `WHERE` clause removed those rows before the window function ran. Window functions only see rows that survived `WHERE`, `GROUP BY` and `HAVING`.
 
@@ -121,15 +121,14 @@ There is a third detail hiding in that query: the first days of March cannot see
 
 That order of work explains the most common error with window functions. To keep only each patient's latest visit, it is tempting to write:
 
-```text
+```sql
+-- Expect error 42P20
 SELECT patient_id, visit_at
 FROM visits
 WHERE row_number() OVER (PARTITION BY patient_id ORDER BY visit_at DESC) = 1;
-
-ERROR:  window functions are not allowed in WHERE
 ```
 
-PostgreSQL reports this with the error code 42P20. `WHERE` runs first and decides which rows exist; window functions are calculated later, on the rows that remain. Giving the column an alias such as `rn` and writing `WHERE rn = 1` fails too, with "column rn does not exist", because aliases from the `SELECT` list are not visible in `WHERE`.
+PostgreSQL refuses it: "window functions are not allowed in WHERE", error code 42P20. `WHERE` runs first and decides which rows exist; window functions are calculated later, on the rows that remain. Giving the column an alias such as `rn` and writing `WHERE rn = 1` fails too, with "column rn does not exist" (error code 42703), because aliases from the `SELECT` list are not visible in `WHERE`.
 
 The fix is to compute the window in one step and filter in the next, using a CTE (lesson 1.3) or a subquery:
 

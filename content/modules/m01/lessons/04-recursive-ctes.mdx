@@ -9,7 +9,8 @@ against loops, and building calendars so you can find days when nothing was reco
 A **recursive CTE** is a named step that refers to itself. It always has the same shape:
 
 1. An **anchor**: an ordinary query that produces the starting rows.
-2. `UNION ALL`, joining the anchor to what follows.
+2. `UNION ALL`, joining the anchor to what follows (or `UNION`, which also throws away duplicate
+   rows; more on that below).
 3. A **recursive term**: a query that reads from the CTE's own name and produces the next rows.
 
 PostgreSQL runs the anchor once. Then it runs the recursive term, where the CTE's name means "only
@@ -37,7 +38,8 @@ ORDER BY depth;
 Trace it by hand. The anchor finds facility 1 at depth 0. The first round joins that row to the
 facility it refers to, at depth 1. Each round climbs one level. When a round reaches a facility with
 no `referral_facility_id`, the join finds no partner, that round is empty, and the query stops. The
-`depth` column is a counter you carry along yourself; PostgreSQL does not provide one.
+`depth` column is a counter you carry along yourself; PostgreSQL does not add one unless you ask
+for it with a `SEARCH` clause, which this course does not need.
 
 <QuickCheck id="m01-qc-04-1" />
 
@@ -79,13 +81,15 @@ of referral steps it takes.
 Real referral data has mistakes. If someone records that A refers to B, B to C and C back to A, the
 recursive term never runs out of rows, and the query runs until something stops it.
 The clinic data has no such loop, so the examples below build a tiny made-up network in a
-`VALUES` list, with a deliberate cycle 1 to 2 to 3 to 1.
+`VALUES` list (a small table written out inline, one bracketed row at a time), with a deliberate
+cycle 1 to 2 to 3 to 1.
 
 Since PostgreSQL 14 you can add a **CYCLE clause** after the recursive CTE. You name the column
 that identifies a node, and PostgreSQL tracks where the walk has been. When a row would revisit a
 node, it is marked and the walk stops there.
 
 ```sql
+-- Expect 4 rows
 WITH RECURSIVE referrals(from_id, to_id) AS (
   VALUES (1, 2), (2, 3), (3, 1)
 ),
@@ -100,14 +104,16 @@ SELECT from_id, to_id, is_cycle, path
 FROM walk;
 ```
 
-Look at the last row: it is the step that closed the loop, kept in the result with `is_cycle` set to
-true, and nothing follows it. Add `WHERE NOT is_cycle` to the final query if you only want the
+Look at the last two rows. The step from 3 back to 1 is produced as normal. The row after it is
+1 to 2 a second time: the walk would start round the loop again, so that row is kept with
+`is_cycle` set to true, and nothing follows it. Add `WHERE NOT is_cycle` to the final query if you only want the
 clean steps. PGlite in this course is PostgreSQL 18, so `CYCLE` works here.
 
 On older versions, or if you want to see the mechanism, carry the path yourself and refuse to step
 onto a node already in it. `x <> ALL (array)` is true when `x` differs from every element:
 
 ```sql
+-- Expect 3 rows
 WITH RECURSIVE referrals(from_id, to_id) AS (
   VALUES (1, 2), (2, 3), (3, 1)
 ),
@@ -125,12 +131,14 @@ SELECT from_id, to_id, path
 FROM walk;
 ```
 
-Here the step that would close the loop is never produced at all. Either way, the walk ends.
+Here the step from 3 back to 1 still appears, but the step after it, 1 to 2 a second time, is
+never produced, because 1 is already in the path. Either way, the walk ends.
 
 ## Calendars, and the simpler tool
 
 Recursion is not only for hierarchies. A recursive CTE can count, which means it can build a list
 of dates: start at the first of the month and add one day per round until the last day.
+`to_char(day, 'Dy')` turns each date into a short weekday name; lesson 1.7 explains `to_char`.
 
 ```sql
 WITH RECURSIVE calendar(day) AS (

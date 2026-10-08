@@ -1,5 +1,6 @@
 // Content tests: a lesson, check or challenge that fails here does not ship.
-//  - every ```sql block in every lesson runs against the small dataset (same shape as standard)
+//  - every ```sql block in every lesson runs against the small dataset (same shape as standard),
+//    and fails or returns the row count it says it does
 //  - every quick check is placed in exactly one lesson, and verifiable ones are verified
 //  - every challenge's reference runs; every mustPass passes; every mustFail fails
 import { existsSync, readFileSync } from 'node:fs'
@@ -36,6 +37,11 @@ async function runIsolated(sql: string): Promise<RunOutput> {
 
 const SQL_BLOCK = /```sql\n([\s\S]*?)```/g
 const CHECK_TAG = /<QuickCheck\s+id="([^"]+)"\s*\/>/g
+// A block may state what it shows, and the test holds it to that:
+//   -- Expect error 42803     the block must fail with this SQLSTATE
+//   -- Expect no rows / -- Expect 2 rows
+const EXPECT_ERROR = /^-- Expect error ([0-9A-Z]{5})\b/m
+const EXPECT_ROWS = /^-- Expect (no|\d+) rows?\b/m
 
 for (const [moduleId, mod] of Object.entries(MODULE_CONTENT)) {
   const dir = join('content/modules', moduleId.slice(0, 3), 'lessons')
@@ -73,8 +79,18 @@ for (const [moduleId, mod] of Object.entries(MODULE_CONTENT)) {
       })
       const blocks = [...source.matchAll(SQL_BLOCK)].map((m) => m[1] ?? '')
       blocks.forEach((sql, i) => {
-        it(`runs SQL block ${i + 1}: ${sql.split('\n')[0]?.slice(0, 60)}`, async () => {
-          await expect(runIsolated(sql)).resolves.toBeDefined()
+        const label = sql.split('\n').find((l) => !l.startsWith('--'))?.slice(0, 60)
+        const wantError = EXPECT_ERROR.exec(sql)?.[1]
+        const wantRows = EXPECT_ROWS.exec(sql)?.[1]
+        if (wantError) {
+          it(`SQL block ${i + 1} fails with ${wantError}: ${label}`, async () => {
+            await expect(runIsolated(sql)).rejects.toMatchObject({ code: wantError })
+          })
+          return
+        }
+        it(`runs SQL block ${i + 1}: ${label}`, async () => {
+          const out = await runIsolated(sql)
+          if (wantRows) expect(lastResultSet(out)?.totalRows ?? 0).toBe(wantRows === 'no' ? 0 : Number(wantRows))
         })
       })
     })

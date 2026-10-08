@@ -7,7 +7,8 @@ common way a join quietly gives the wrong count.
 ## Inner joins and aliases
 
 A **join** combines rows from two tables wherever a condition you write is true. The usual condition
-is that a foreign key on one side equals the primary key on the other: `visits.patient_id` holds
+is that a foreign key on one side equals the **primary key** on the other. A primary key is the column
+(or columns) that identifies each row of a table: never NULL, never repeated. `visits.patient_id` holds
 the `id` of a row in `patients`, so `p.id = v.patient_id` pairs each visit with its patient.
 
 The plain form, `JOIN … ON …`, is an **inner join**: a row appears in the result only if it found a
@@ -29,7 +30,7 @@ one query. They save typing, but they also matter for correctness. Both `patient
 which one you mean. Get into the habit of prefixing every column with its alias once a query has
 more than one table. The `AS` keyword is optional, and you will see both styles.
 
-<Note term="Foreign key">A column whose values must match the primary key of another table, such as `visits.patient_id` pointing at `patients.id`. PostgreSQL rejects a value with no match.</Note>
+<Note term="Foreign key">A column whose values must match a key (usually the primary key) of a table, such as `visits.patient_id` pointing at `patients.id`. The table can even be the same one, as you will see with facilities. PostgreSQL rejects a value with no match; NULL is allowed unless the column forbids it.</Note>
 
 ## Keeping rows with no partner: LEFT JOIN
 
@@ -62,7 +63,8 @@ LIMIT 10;
 Look at where the date condition sits: inside `ON`, not in `WHERE`. The `ON` clause decides which
 visits count as a partner, so only 2025 visits can rescue a patient from being "unmatched". The
 `WHERE` clause runs afterwards, on the joined rows. The date literal is read as midnight in the
-session's time zone, Kampala; lesson 1.7 deals with time zones in detail.
+**session**'s time zone, Kampala. A session is one connection to the database, with its own
+settings such as the time zone; lesson 1.7 deals with time zones in detail.
 
 <QuickCheck id="m01-qc-01-1" />
 
@@ -98,7 +100,7 @@ When the two columns you join on have the same name in both tables, you can writ
 a `facility_id`, so `stock JOIN clinicians USING (facility_id)` is valid, and the shared column
 appears once in the output rather than twice.
 
-In this schema the keys are mostly named `id` on one side and `something_id` on the other, so `ON`
+In this **schema** (the set of tables, here `clinic`, and how they connect) the keys are mostly named `id` on one side and `something_id` on the other, so `ON`
 is what you will write most of the time. Avoid `NATURAL JOIN`, which joins on every column whose
 name happens to match. Between `visits` and `patients` that would be both `id` and `facility_id`,
 so visit number 7 would be paired with patient number 7 whenever their facilities agreed: a query

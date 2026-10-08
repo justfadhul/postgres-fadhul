@@ -4,7 +4,7 @@ A clinic in Kampala wants "visits in March". The database server may run on UTC,
 
 The `visit_at` column has the type **timestamptz** (short for "timestamp with time zone"). It stores an **instant**: one point on the world's shared timeline, kept internally in UTC (Coordinated Universal Time). It does not remember which zone it was typed in. When you read it, PostgreSQL converts it to the session's **time zone** setting for display.
 
-Every session in this course starts with `SET TIME ZONE 'Africa/Kampala'`, so values print with `+03`. `SHOW TIME ZONE` tells you the current setting. Rather than take on trust that Kampala is always three hours ahead of UTC, check it: this shows the offset on every day from 2020 to 2030.
+Every session in this course starts with `SET TIME ZONE 'Africa/Kampala'`, so values print with `+03`. `SHOW TIME ZONE` tells you the current setting. Rather than take on trust that Kampala is always three hours ahead of UTC, check it: this shows the offset on every day from 2020 to 2030. `current_setting('TimeZone')` reads a setting's value inside a query, and `to_char` with `'TZH:TZM'` prints a time's offset from UTC.
 
 ```sql
 SELECT current_setting('TimeZone') AS session_zone,
@@ -14,9 +14,21 @@ FROM generate_series(timestamptz '2020-01-01', timestamptz '2030-12-31', interva
 GROUP BY 1, 2;
 ```
 
-One row, one offset: no daylight saving in that period. With the session set to `'Europe/London'` the same query returns two rows, `+00:00` and `+01:00`, because the clocks there change with the seasons. PostgreSQL takes these rules from the **IANA time zone database**, a public list of every region's clock changes. Governments do change their rules occasionally, so name the zone (`'Africa/Kampala'`) rather than hard-coding `'+03'`.
+One row, one offset: no daylight saving in that period. Now the same query for London. `SET` changes the zone for this example only, because lesson examples run in a transaction that is undone afterwards:
 
-The default zone depends on where PostgreSQL runs. A server takes it from its configuration, usually copied from the machine's own time zone when the database was created. PGlite on its own starts in GMT (we saw `Etc/GMT0` with PGlite 0.5.8), which is why this course sets the zone at the start of every session.
+```sql
+-- Expect 2 rows
+SET TIME ZONE 'Europe/London';
+SELECT current_setting('TimeZone') AS session_zone,
+       to_char(day, 'TZH:TZM')     AS utc_offset,
+       count(*)                    AS days_checked
+FROM generate_series(timestamptz '2020-01-01', timestamptz '2030-12-31', interval '1 day') AS day
+GROUP BY 1, 2;
+```
+
+Two rows, `+00:00` and `+01:00`, because the clocks there change with the seasons. PostgreSQL takes these rules from the **IANA time zone database**, a public list of every region's clock changes. Governments do change their rules occasionally, so name the zone (`'Africa/Kampala'`) rather than hard-coding `'+03'`.
+
+The default zone depends on where PostgreSQL runs. A server takes it from its configuration file, where it is usually written from the machine's own time zone when the server's data directory is first set up (by a program called `initdb`); with no setting at all, PostgreSQL uses GMT. PGlite on its own starts in GMT (a test in this course checks that PGlite 0.5.8 reports `Etc/GMT0`), which is why this course sets the zone at the start of every session.
 
 <QuickCheck id="m01-qc-07-1" />
 
@@ -130,4 +142,4 @@ Your counts come out roughly equal across the week. That is a feature of the syn
 
 - [PostgreSQL reference: date and time types, including time zones](https://www.postgresql.org/docs/current/datatype-datetime.html)
 - [PostgreSQL reference: date and time functions and operators](https://www.postgresql.org/docs/current/functions-datetime.html)
-- [Use The Index, Luke: why ranges on the bare column suit indexes](https://use-the-index-luke.com/)
+- [Use The Index, Luke](https://use-the-index-luke.com/), a free book on indexes; its chapter on obfuscated conditions covers dates and why ranges on the bare column suit indexes

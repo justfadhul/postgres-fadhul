@@ -67,7 +67,7 @@ ORDER BY x;`,
     options: ['true', 'false', 'NULL', 'An error'],
     answer: 2,
     explanation:
-      'NULL means "unknown", and whether one unknown value equals another is itself unknown, so the result is NULL. It is tempting to answer true because the two look identical, but SQL does not compare markers, it compares values, and there are none here. To test for a missing value, use IS NULL; to compare two values treating NULLs as equal, use IS NOT DISTINCT FROM.',
+      'NULL means "unknown", and whether one unknown value equals another is itself unknown, so the result is NULL (with the default setting transform_null_equals = off). It is tempting to answer true because the two look identical, but SQL does not compare markers, it compares values, and there are none here. To test for a missing value, use IS NULL; to compare two values treating NULLs as equal, use IS NOT DISTINCT FROM.',
     verify: { sql: 'SELECT NULL = NULL', expect: 'NULL' },
   },
   {

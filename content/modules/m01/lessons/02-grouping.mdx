@@ -156,20 +156,21 @@ setting would move visits between months.
 ## Common mistake: a column that is neither grouped nor aggregated
 
 Every column in the `SELECT` list of a grouped query must either appear in `GROUP BY` or sit inside
-an aggregate. This query breaks the rule:
+an aggregate. This query breaks the rule. Run it and read the error:
 
-```text
+```sql
+-- Expect error 42803
 SELECT facility_id, visit_type, count(*)
 FROM visits
 GROUP BY facility_id;
 ```
 
 PostgreSQL refuses it with SQLSTATE **42803** (`grouping_error`) and the message that column
-`visits.visit_type` must appear in the `GROUP BY` clause or be used in an aggregate function. The
+`visits.visit_type` must appear in the `GROUP BY` clause or be used in an aggregate function. (A
+SQLSTATE is the five-character code PostgreSQL attaches to every error; unlike the message, it does
+not change when the server's language does, so programs check the code.) The
 reason is sound: one facility can have visits of several types, and the output has one row per facility, so
 which type should that row show? There is no right answer, so the database will not guess.
-(MySQL in some configurations does guess, silently picking a value; that is a source of real bugs
-when queries move between databases.)
 
 The fix depends on what you meant. If you want a row for each facility and type, add `visit_type`
 to `GROUP BY`. If you want a column per type, use `FILTER` as above. If you only wanted the

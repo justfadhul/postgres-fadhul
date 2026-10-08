@@ -88,7 +88,7 @@ WHERE x > 10;`,
     options: ['0, 0', '0, NULL', 'No rows at all', 'NULL, NULL'],
     answer: 1,
     explanation:
-      'An aggregate query with no GROUP BY always returns exactly one row, even over zero input rows. count returns 0 because there is nothing to count; sum returns NULL because there is nothing to add up, and PostgreSQL does not invent a zero. The tempting "0, 0" is what a report usually wants: write coalesce(sum(x), 0) to get it.',
+      'An aggregate query with no GROUP BY returns exactly one row, even over zero input rows (unless a HAVING clause rejects it). count returns 0 because there is nothing to count; sum returns NULL because there is nothing to add up, and PostgreSQL does not invent a zero. The tempting "0, 0" is what a report usually wants: write coalesce(sum(x), 0) to get it.',
     verify: {
       sql: `SELECT count(*), sum(x)
 FROM (VALUES (5)) AS t(x)
@@ -168,7 +168,7 @@ FROM (VALUES (1), (2), (3)) AS t(x);`,
     ],
     answer: 1,
     explanation:
-      'Without LATERAL, a subquery in FROM cannot see the other tables in the same FROM list, and the reference to p.id is an error. LATERAL lets it use columns of earlier tables, so ORDER BY … LIMIT 3 is applied to each patient separately. Running once and being reused is what happens without LATERAL, and it would not be per patient. Keeping patients with no visits needs LEFT JOIN LATERAL … ON true; LATERAL on its own does not do that.',
+      'Without LATERAL, a subquery in FROM cannot see the other tables in the same FROM list, and the reference to p.id is an error. LATERAL lets it use columns of earlier tables, so ORDER BY … LIMIT 3 is applied to each patient separately. Running once and being reused is what a subquery without LATERAL does, and such a subquery cannot refer to p.id at all. Keeping patients with no visits needs LEFT JOIN LATERAL … ON true; LATERAL on its own does not do that.',
   },
 
   // 1.4 Recursive CTEs

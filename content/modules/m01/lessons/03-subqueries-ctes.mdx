@@ -83,7 +83,8 @@ LIMIT 10;
 ```
 
 This gives the same rows as the LEFT JOIN anti-join, although PostgreSQL does not always plan the
-two the same way. Many people find `NOT EXISTS` easier to read, because it says what it means. You may be
+two the same way. (The **planner** is the part of PostgreSQL that decides how to carry out a
+query; its chosen method is the **plan**. Module 3 looks at plans in detail.) Many people find `NOT EXISTS` easier to read, because it says what it means. You may be
 tempted to write `NOT IN (SELECT …)` instead; it looks equivalent but behaves badly when the list
 contains a NULL. Lesson 1.6 shows exactly how.
 
@@ -122,7 +123,8 @@ selecting from it directly.
 
 Does naming a step cost anything? Before PostgreSQL 12, every CTE was evaluated as a separate step,
 and the planner could not push conditions from the main query into it, which could be slow. Since
-version 12, a plain CTE that is used only once and has no side effects (such as changing data) is
+version 12, a plain CTE that is used only once and has no side effects (it changes no data and
+calls no volatile function, one such as `random()` that can give a different answer each call) is
 usually **inlined**: folded into the main query as
 if you had written a subquery, so the planner can optimise across it. You can override this with
 `WITH name AS MATERIALIZED (…)` to force the separate step, or `NOT MATERIALIZED` to ask for
@@ -172,9 +174,10 @@ that question later and compares three ways of answering it; this is one of them
 ## Common mistake: a scalar subquery that returns several rows
 
 A scalar subquery must produce at most one row. This one is meant to show a patient's visit date,
-but a patient can have many visits:
+but a patient can have many visits. Run it:
 
-```text
+```sql
+-- Expect error 21000
 SELECT full_name,
        (SELECT visit_at FROM visits WHERE visits.patient_id = patients.id) AS visit_at
 FROM patients

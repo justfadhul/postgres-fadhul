@@ -22,6 +22,10 @@ function report(r: SpikeResult) {
 
 describe('Milestone 0 spikes (Node, in-memory PGlite)', () => {
   it('reports the engine version', async () => report(await spikeVersion(db)))
+  it('starts in GMT before the course sets a zone (lesson 1.7 says so)', async () => {
+    const { rows } = await db.query<{ TimeZone: string }>('SHOW TimeZone')
+    expect(rows[0]?.TimeZone).toBe('Etc/GMT0')
+  })
   it('spike 3: btree_gist exclusion constraints', async () => report(await spikeExclusion(db)))
   it('spike 4: roles, SET ROLE and row-level security', async () => report(await spikeRolesRls(db)))
   it('spike 5: EXPLAIN (ANALYZE, BUFFERS)', async () => report(await spikeExplain(db)))
