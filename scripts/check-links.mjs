@@ -11,7 +11,8 @@ import { join, extname } from 'node:path'
 const ROOTS = ['content', 'docs', 'labs', 'app/src', 'README.md', 'CLAUDE.md']
 const SKIP_FILES = new Set(['docs/BRIEF.md']) // kept verbatim; its Appendix B links live in content/resources.ts
 const EXTS = new Set(['.md', '.mdx', '.ts', '.tsx', '.json'])
-const IGNORE = [/^https?:\/\/localhost/, /^https?:\/\/127\./, /example\.(com|org)/, /\$\{/, /^https:\/\/codespaces\.new\//]
+// The site's own URL is checked by the deploy job, not here (it 404s until Pages is on).
+const IGNORE = [/^https:\/\/justfadhul\.github\.io\//, /^https?:\/\/localhost/, /^https?:\/\/127\./, /example\.(com|org)/, /\$\{/, /^https:\/\/codespaces\.new\//]
 const STRICT = process.env.LINKCHECK_STRICT === '1' || process.env.CI === 'true'
 
 function* files(path) {
