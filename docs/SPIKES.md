@@ -37,6 +37,27 @@ profile (390 × 664). **It is not iOS Safari on a real iPhone**, so a phone will
 
 The Node run in the build sandbox gave similar numbers: standard seeded in 2.4 s, large in 6.1 s.
 
+### Real iPhone, iOS Safari (learner's phone, 8 October 2026)
+
+Safari 26.2 on an iPhone (390 × 699 viewport, 4 cores reported), against the Vercel deployment.
+These numbers come from the phone itself, not emulation:
+
+| Step | Result |
+| --- | --- |
+| Reopen the engine from IndexedDB (engine files already cached) | **Pass**, 950 ms |
+| Saved data after closing and reopening | **Pass**: the marker row and the 100,000-visit dataset survived |
+| Seed large (40 facilities, 25,000 patients, 250,000 visits) | **Pass**, 5,087 ms (3,390 ms of SQL); three representative queries in 842 ms |
+| Browser storage after seeding large | 475 MB used of a 41,232 MB quota; persistent storage **not** granted |
+
+So the real phone was **faster than CI's WebKit emulation** (reopen 0.95 s against 2.9 s; large seed
+5.1 s against 8.5 s). Both dataset sizes fit comfortably under the 10-second target.
+
+Still missing from the phone: the exclusion, row-level security and `EXPLAIN` checks (spikes 3 to
+5). The results the learner sent came after a reload, so they did not include the first run. The
+storage figure also needs explaining: 475 MB is far more than the data. The page now prints
+PostgreSQL's own `pg_database_size` beside the browser's figure, so one more run will show how much
+of it is PGlite's IndexedDB overhead.
+
 ## Findings that change the design
 
 1. **PGliteWorker drops error codes.** Through PGlite's own worker wrapper, a constraint
@@ -48,16 +69,23 @@ The Node run in the build sandbox gave similar numbers: standard seeded in 2.4 s
    3.36 MB, `pglite.data` 2.09 MB, the worker 0.14 MB, `initdb.wasm` 0.14 MB and `btree_gist`
    0.02 MB. The site states this figure before downloading, and `npm run check:size` fails if it
    drifts by more than 10%. Whether the host (now Vercel) compresses `.wasm` and `.data` on the
-   wire is not yet known: `scripts/check-deployed.mjs` measures it after the first deployment. If
-   it does not, the transfer
-   is about 16 MB and Milestone 1 should ship pre-compressed files (see PLAN.md, Risks).
+   wire is not yet known. The first Vercel check could not measure it: it relied on
+   `size-report.json`, which the deployment did not contain. Vercel answered with `index.html` and
+   status 200, which suggests the dashboard's build command, not `vercel.json`'s, was used.
+   `scripts/check-deployed.mjs` now finds the engine files by following references from
+   `index.html`, as the browser does. If the engine is not compressed, the transfer is about 16 MB,
+   and Milestone 1 should ship pre-compressed files (see PLAN.md, Risks).
 3. **First start runs `initdb`** (about 2 to 3 s of the cold start). Reopening skips it. Shipping
    a pre-initialised data directory could remove it, at the cost of a slightly larger download.
-4. **Storage figures from WebKit look unreliable.** `navigator.storage.estimate()` reported 285 to
-   362 MB in Playwright's WebKit, against 27 to 54 MB in Chromium for the same data. Treat the
-   number as approximate until it is checked on a real iPhone.
-5. **`navigator.storage.persist()` returned false** in every emulated browser. Safari may grant
-   it to a site added to the Home Screen. Export and import (Milestone 1) is the real safety net.
+4. **Safari reports far more storage than the data needs.** `navigator.storage.estimate()`
+   reported 285 to 362 MB in Playwright's WebKit, against 27 to 54 MB in Chromium for the same
+   data. The real iPhone reported 475 MB with both the standard and large datasets saved. The
+   next run on the phone also prints `pg_database_size`, which shows whether the excess is PGlite's
+   IndexedDB layout or Safari's accounting. Possible fixes, if it is real: keep only one dataset,
+   or add a "free space" button that drops and re-seeds.
+5. **`navigator.storage.persist()` returned false** in every emulated browser **and on the real
+   iPhone** (its 699 px viewport height suggests Safari with toolbars, not the Home Screen app). Safari may grant it to a site added to the
+   Home Screen. Export and import (Milestone 1) is the real safety net.
 
 ## Tier decisions proposed for approval
 

@@ -105,6 +105,11 @@ export default function Spikes() {
       const db = await ensureEngine()
       add(await spikeSeed(db, SIZES[name], name))
       add(await timedStep('storage', 'Storage after seeding', async (log) => {
+        // Compare what PostgreSQL holds with what the browser says it stores.
+        const { rows } = await db.query<{ size: string }>(
+          `SELECT pg_size_pretty(pg_database_size(current_database())) AS size`,
+        )
+        log(`PostgreSQL reports the database at ${rows[0]?.size}.`)
         for (const s of await storageInfo()) log(s)
       }))
     })

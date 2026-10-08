@@ -2,8 +2,10 @@
 
 Read this with [`BRIEF.md`](BRIEF.md) at the start of every session. Newest milestone first.
 
-**Site:** on Vercel, **not deployed yet**. The learner is importing the repository; put the
-production URL here once it exists.
+**Site:** deployed on Vercel. First production deployment (8 October 2026):
+https://postgres-fadhul-nwsdktcod-fadhulusama-gmailcoms-projects.vercel.app. That is a
+per-deployment URL; replace it with the project's stable production domain once the learner
+sends it.
 **Repository:** https://github.com/justfadhul/postgres-fadhul (default branch
 `claude/eloquent-cannon-pvvwiw`)
 
@@ -57,13 +59,16 @@ production URL here once it exists.
 
 ### Waiting on the learner
 
-1. **Import the repository into Vercel** (Add New → Project → `justfadhul/postgres-fadhul`).
-   `vercel.json` already sets the build, so accept the defaults. Add **no environment variables**.
-   Production branch: the repository's default branch. Then send the production URL.
+1. ~~Import the repository into Vercel.~~ Done. Still needed: the stable production domain, and
+   a check of the Vercel project's **Build Command** setting. The first deployment did not contain
+   `size-report.json`, which `vercel.json`'s build command writes. Either setting is fine now,
+   because the deployed-site check no longer needs that file.
 2. **Approve the spike results and tiers** in [`SPIKES.md`](SPIKES.md): Modules 2, 3 and 6 stay
    Browser tier; standard dataset by default.
-3. **Run the engine check on your iPhone** (steps at the end of SPIKES.md) and send the copied
-   results.
+3. **One more engine check on the iPhone.** The first phone results passed reopen, persistence
+   and the large seed (SPIKES.md, "Real iPhone"). Still to run: tap **Download engine and run
+   checks** (exclusion, RLS and EXPLAIN on the phone), then **standard**, which now also prints
+   the database's own size. Copy and send.
 4. **Optional, recommended:** a separate cloud environment for this repo without the for-edith
    secrets (see CLAUDE_CODE_SETUP.md).
 
