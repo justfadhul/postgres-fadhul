@@ -1,0 +1,32 @@
+name: Deployed site
+
+# Vercel's GitHub integration reports each deployment back to GitHub. When the
+# production deployment succeeds, check the live site and how the engine is served.
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Site URL to check, for example https://your-project.vercel.app/'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check the deployed site
+    # Preview deployments are behind Vercel's login by default, so only production is checked.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Check shell, service worker and engine compression
+        run: node scripts/check-deployed.mjs "$SITE_URL"
+        env:
+          SITE_URL: ${{ inputs.url || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}

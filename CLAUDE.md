@@ -9,13 +9,14 @@ Work one milestone at a time and stop for review at the end of each (brief, sect
 
 ```bash
 npm install                 # dependencies (the SessionStart hook does this in cloud sessions)
-npm run dev                 # dev server at http://localhost:5173/postgres-fadhul/
+npm run dev                 # dev server at http://localhost:5173/
 npm run check               # type check, lint, unit + content + spike tests, link check (the gate)
 npm run build               # production build into dist/
 npm run check:size          # first-load JS budget and engine download figure (after build)
 npm run e2e:local           # Playwright: desktop Chromium + 360 px mobile Chromium
 npx playwright test         # all projects, including WebKit iPhone (WebKit installed in CI)
 npx vitest run tests/spikes # Milestone 0 engine spikes in Node
+node scripts/check-deployed.mjs <url>  # check a live deployment (engine compression etc.)
 make check LAB=<id>         # Codespace lab checker (inside the devcontainer)
 ```
 
@@ -25,8 +26,10 @@ direct internet access and is strict in CI (`LINKCHECK_STRICT=1`).
 
 ## Architecture
 
-Vite + React + TypeScript single-page app in `app/`, served from GitHub Pages under `/postgres-fadhul/`
-with hash routes (`#/resources`) so deep links work offline and without a 404 fallback. PostgreSQL
+Vite + React + TypeScript single-page app in `app/`, hosted on Vercel (free Hobby plan) as plain
+static files from the domain root (`vercel.json`; Vercel builds on every push). Hash routes
+(`#/resources`) mean no server rewrites and deep links work offline. Vercel gets no environment
+variables: the app needs none. PostgreSQL
 runs in the page as PGlite (PostgreSQL 18 compiled to WebAssembly) inside a Web Worker
 (`app/src/db/pglite-worker.ts`), persisted to IndexedDB (`idb://`), loaded only when a workbench
 or engine page first opens. The page talks to the worker through our own small protocol

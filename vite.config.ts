@@ -3,9 +3,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// GitHub Pages serves a project site under /<repo-name>/. Override with BASE_PATH
-// (for example BASE_PATH=/ for a custom domain).
-const base = process.env.BASE_PATH ?? '/postgres-fadhul/'
+// Vercel serves the site from the domain root. Set BASE_PATH (for example
+// /postgres-fadhul/) to host it under a sub-path such as a GitHub Pages project site.
+const base = process.env.BASE_PATH ?? '/'
 
 export default defineConfig({
   base,

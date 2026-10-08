@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineConfig, devices } from '@playwright/test'
 
-const BASE_PATH = process.env.BASE_PATH ?? '/postgres-fadhul/'
+const BASE_PATH = process.env.BASE_PATH ?? '/'
 const PORT = 4173
 
 // Cloud sandboxes ship a pre-installed Chromium that may not match this

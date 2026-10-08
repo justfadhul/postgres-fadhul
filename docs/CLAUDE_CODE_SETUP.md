@@ -135,6 +135,10 @@ credentials and a PHI encryption key. **This project uses none of them.** The br
 backend and keys in the app, and the course uses only synthetic data. `CLAUDE.md` tells Claude
 never to use them here.
 
+The same goes for **Vercel**: the site needs no environment variables, so do not copy the
+for-edith ones into this Vercel project. Vite only puts `VITE_`-prefixed variables into the
+browser bundle, but secrets that are not needed should not be there at all.
+
 Recommended: make a separate cloud environment for this repo with no secrets (no Supabase, ICD
 or PHI variables), with network access that allows the package managers. A session in this repo
 then cannot reach a database that may hold real patient data, even by mistake. You can do this in

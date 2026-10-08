@@ -15,7 +15,7 @@ challenges, timed exams and progress tracking, all in a static site with no back
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173/postgres-fadhul/
+npm run dev      # http://localhost:5173/
 npm run check    # the gate: types, lint, tests, links
 ```
 

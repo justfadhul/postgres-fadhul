@@ -47,8 +47,9 @@ The Node run in the build sandbox gave similar numbers: standard seeded in 2.4 s
 2. **The engine is about 5.9 MB gzipped, not under 3 MB.** Measured from the build: `pglite.wasm`
    3.36 MB, `pglite.data` 2.09 MB, the worker 0.14 MB, `initdb.wasm` 0.14 MB and `btree_gist`
    0.02 MB. The site states this figure before downloading, and `npm run check:size` fails if it
-   drifts by more than 10%. Whether GitHub Pages compresses `.wasm` and `.data` on the wire is not
-   yet known: the deploy job prints it once Pages is switched on. If Pages does not, the transfer
+   drifts by more than 10%. Whether the host (now Vercel) compresses `.wasm` and `.data` on the
+   wire is not yet known: `scripts/check-deployed.mjs` measures it after the first deployment. If
+   it does not, the transfer
    is about 16 MB and Milestone 1 should ship pre-compressed files (see PLAN.md, Risks).
 3. **First start runs `initdb`** (about 2 to 3 s of the cold start). Reopening skips it. Shipping
    a pre-initialised data directory could remove it, at the cost of a slightly larger download.
@@ -72,7 +73,7 @@ The Node run in the build sandbox gave similar numbers: standard seeded in 2.4 s
 
 ## What to check on your iPhone
 
-Open the deployed site in Safari, go to **Engine check**, and use Wi-Fi the first time:
+Open the deployed Vercel site in Safari, go to **Engine check**, and use Wi-Fi the first time:
 
 1. Tap **Download engine and run checks**. All six results should say Pass.
 2. Tap **standard (100,000 visits)** and note the time.

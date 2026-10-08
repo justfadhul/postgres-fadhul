@@ -9,13 +9,14 @@ Spike results are in [`SPIKES.md`](SPIKES.md); current status is in [`PROGRESS.m
 | # | Brief says | This build does | Why |
 | --- | --- | --- | --- |
 | 1 | PGlite is under 3 MB gzipped | Shows the real figure: **about 5.9 MB gzipped** (PGlite 0.5.8) | Measured from the build (`npm run check:size`): `pglite.wasm` 3.4 MB + `pglite.data` 2.1 MB + worker 0.14 MB + `initdb.wasm` 0.14 MB + `btree_gist` 0.02 MB. It downloads once, only when the learner opens the workbench, and the service worker keeps it. Ways to shrink it are listed under Risks; none is worth taking before Milestone 1 testing. |
-| 2 | Handle `/repo-name/` in the router | Hash routes (`#/module/1`) plus Vite `base` | GitHub Pages has no rewrite rules. Path routes need a copied `404.html`, which returns HTTP 404 for every deep link. Hash routes work on Pages, offline, and from a Home Screen icon with no tricks. The base path still matters for assets and the service worker scope, and both use it. |
+| 2 | Handle `/repo-name/` in the router | Hash routes (`#/module/1`) plus Vite `base` | Hash routes need no server rewrite rules, so they work on any static host (first GitHub Pages, now Vercel), offline, and from a Home Screen icon with no tricks. The base path (now `/` on Vercel) still drives asset URLs and the service worker scope. |
 | 3 | Run PGlite in a Web Worker (implied: PGlite's `PGliteWorker`) | A small worker protocol of our own (`app/src/db/protocol.ts`) | Spike finding: `PGliteWorker` forwards only `error.message` from the worker, so SQLSTATE codes, `detail`, `constraint` and `position` are lost. The constraint grader needs the code and the error display needs the position. The protocol is about 150 lines, keeps every error field, and uses a Web Lock so two tabs never open the same IndexedDB database. |
-| 4 | Repository `data-systems-mastery` | Repository `justfadhul/postgres-fadhul`, site at `/postgres-fadhul/` | The repository already existed. Renaming later needs one change: `BASE_PATH` (or the default in `vite.config.ts` and `playwright.config.ts`). The npm package is still called `data-systems-mastery`. |
+| 4 | Repository `data-systems-mastery` | Repository `justfadhul/postgres-fadhul` | The repository already existed. On Vercel the repository name does not affect the site URL. The npm package is still called `data-systems-mastery`. |
 | 5 | Evaluate `@electric-sql/pglite-repl` before writing `\d` helpers | Do not adopt it; use its describe engine (`psql-describe`) directly in Milestone 1 | `pglite-repl` brings React 19, `@uiw/react-codemirror`, two themes and `pglite-react`, has no mobile key row and talks to `PGliteWorker` (problem 3). The `\d` logic it uses comes from `psql-describe`, which we can call on our own CodeMirror 6 editor. To be proven with a test in Milestone 1. |
 | 6 | Module 6 is Browser tier if the spike passes | Browser tier, with one adjustment | The spike passed: roles, `SET ROLE`, grants, column privileges and row-level security all work. PGlite has one connection, so the policy grader switches with `SET ROLE` rather than logging in as each role. That tests the same policies. Anything about logins themselves (passwords, `pg_hba.conf`) becomes an optional Codespace exercise. |
 | 7 | Start in Plan mode and wait for approval | The plan is written here and Milestone 0 is built, then work stops | The learner asked for the brief to be executed in this session. The stop after Milestone 0, for approval of spike results and tier changes, still holds. |
 | 8 | (Not in the brief) | Ask the learner to add the site to the Home Screen | Safari can delete IndexedDB data for a website that has not been used for 7 days. Home Screen web apps are exempt. Progress also has JSON export and import (Milestone 1), with a reminder after each module. |
+| 9 | GitHub Pages, deployed by GitHub Actions; public repository | **Vercel** (free Hobby plan), deployed by Vercel's GitHub integration | The learner's choice. Vercel serves from the domain root (no `/repo-name/` base path) and compresses responses itself. CI still gates quality (check, e2e); the "Deployed site" workflow checks each production deployment, including whether the engine travels compressed. Set `BASE_PATH` to host under a sub-path again. |
 
 ## Architecture
 
@@ -30,11 +31,14 @@ tests/          Node tests (spikes now; graders and content runners later)
 e2e/            Playwright: WebKit iPhone 360/390, Chromium desktop and 360
 scripts/        Link checker, bundle size checker
 .devcontainer/  Node LTS, Go, PostgreSQL 18, Docker-in-Docker
-.github/        CI (check, e2e, deploy to Pages), devcontainer build
+.github/        CI (check, e2e), deployed-site check, devcontainer build
+vercel.json     Vercel build, output and cache headers
 ```
 
-- **Static only.** GitHub Pages, deployed by GitHub Actions from the default branch after `check`
-  and `e2e` pass. No backend, no keys, no analytics.
+- **Static only.** Vercel (Hobby plan) builds and deploys every push through its GitHub
+  integration; the default branch is production. GitHub Actions runs `check` and `e2e` on the same
+  push, and a "Deployed site" workflow checks each production deployment. No backend, no keys, no
+  environment variables, no analytics.
 - **First load.** React, the router and the shell: 77 KB gzipped (budget 150 KB). Lessons render
   without the engine.
 - **Engine.** PGlite 0.5.8, which is PostgreSQL 18.3, the same major version as the devcontainer.
@@ -139,7 +143,7 @@ implementation that is never committed.
 
 | # | Scope | Stop for |
 | --- | --- | --- |
-| 0 | Scaffold, Claude Code setup, devcontainer, CI, Pages deploy of the shell, spike report | Approval of spike results and tier changes (**now**) |
+| 0 | Scaffold, Claude Code setup, devcontainer, CI, deploy of the shell (Vercel), spike report | Approval of spike results and tier changes (**now**) |
 | 1 | Storage module, export/import, workbench, lesson reader (MDX), quick checks, result grader, course map with progress, PWA polish. Module 1 complete end to end: lessons, quick checks, challenges, the 30-report assignment, "latest visit three ways" | The learner testing on his own iPhone |
 | 2 | Modules 2 and 3, constraint and plan graders | Review |
 | 3 | Module 4 (browser parts plus Codespace two-session labs with recorded transcripts), lab framework and completion codes, exam engine, Phase 1 exam | Review |
@@ -150,8 +154,9 @@ implementation that is never committed.
 
 ## Risks and options
 
-- **Engine size (5.9 MB).** Before Milestone 1, check how GitHub Pages actually serves `.wasm` and
-  `.data` (the deploy job prints this). If Pages does not compress them, the download is about
+- **Engine size (5.9 MB).** Before Milestone 1, check how Vercel actually serves `.wasm` and
+  `.data` (`scripts/check-deployed.mjs` measures it and fails if they travel uncompressed). If they
+  are not compressed, the download is about
   16 MB. The fix would be to ship pre-compressed copies and decompress them in the worker with
   `DecompressionStream`; PGlite accepts `pgliteWasmModule` and `fsBundle`. Further savings:
   prebuild an initialised data directory so first start skips `initdb` (it costs about 3 s), and

@@ -39,7 +39,7 @@ function ThemeToggle() {
 
 export function App() {
   return (
-    // Hash routes work on GitHub Pages without a 404 fallback and offline from the service worker.
+    // Hash routes need no server rewrites and work offline from the service worker.
     <Router hook={useHashLocation}>
       <a className="skip-link" href="#main" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus() }}>
         Skip to content
