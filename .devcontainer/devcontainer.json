@@ -1,0 +1,21 @@
+{
+  "name": "Data Systems Mastery labs",
+  "build": { "dockerfile": "Dockerfile", "context": "." },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
+    "ghcr.io/devcontainers/features/go:1": { "version": "latest" },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  // 2 cores is the smallest machine. A free personal account gets 120 core-hours
+  // a month: 60 hours on this machine. Stop the codespace when you finish.
+  "hostRequirements": { "cpus": 2, "memory": "8gb" },
+  "remoteUser": "vscode",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postStartCommand": "bash .devcontainer/start-postgres.sh",
+  "forwardPorts": [5432],
+  "portsAttributes": { "5432": { "label": "PostgreSQL 18", "onAutoForward": "silent" } },
+  "customizations": {
+    "codespaces": { "openFiles": ["labs/README.md"] },
+    "vscode": { "extensions": ["golang.go", "dbaeumer.vscode-eslint"] }
+  }
+}

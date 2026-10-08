@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check (types, lint, unit, content, links) and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+        env:
+          LINKCHECK_STRICT: '1'
+      - run: npm run build
+      - run: npm run check:size
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+
+  e2e:
+    name: End-to-end (WebKit iPhone, Chromium desktop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps webkit chromium
+      - name: Playwright (all projects, including the large dataset spike)
+        run: npx playwright test
+        env:
+          SPIKE_LARGE: '1'
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 14
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: [check, e2e]
+    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v5
+      - name: Report how the engine files are served
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          sleep 20
+          for f in $(node -e "const r=require('./dist/size-report.json'); console.log(Object.keys(r.engine.files).join(' '))"); do
+            echo "== $f"
+            curl -sS -o /dev/null -H 'Accept-Encoding: gzip, br' \
+              -w 'status %{http_code}, type %{content_type}, downloaded %{size_download} bytes\n' "${PAGE_URL}${f}"
+            curl -sSI -H 'Accept-Encoding: gzip, br' "${PAGE_URL}${f}" | grep -i -E '^(content-encoding|content-length|cache-control):' || true
+          done

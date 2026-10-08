@@ -1,0 +1,20 @@
+name: Devcontainer
+
+on:
+  push:
+    paths: ['.devcontainer/**', 'labs/**', 'Makefile', '.github/workflows/devcontainer.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the Codespace image and run the environment check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: devcontainers/ci@v0.3
+        with:
+          push: never
+          runCmd: make check LAB=env-check
