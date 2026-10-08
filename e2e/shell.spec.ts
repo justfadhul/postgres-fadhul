@@ -43,11 +43,11 @@ test('lessons are readable without downloading the engine', async ({ page }) => 
 test('a lesson stays where the reader scrolled it', async ({ page }) => {
   await page.goto('./#/lesson/m01-l02')
   await expect(page.getByRole('button', { name: 'Mark this lesson done' })).toBeAttached()
-  await page.mouse.wheel(0, 1500)
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500)
-  // The reading-progress bar re-renders on scroll; that must never send the page back to the top.
+  // Scrolled from the page, because mobile WebKit in Playwright has no mouse wheel; scroll events fire either way.
+  await page.evaluate(() => window.scrollTo(0, 1500))
   await page.waitForTimeout(500)
-  await page.mouse.wheel(0, 200)
+  // The reading-progress bar re-renders on scroll; that must never send the page back to the top.
+  await page.evaluate(() => window.scrollBy(0, 200))
   await page.waitForTimeout(500)
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(500)
 })
