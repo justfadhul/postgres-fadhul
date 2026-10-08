@@ -2,14 +2,124 @@
 
 Read this with [`BRIEF.md`](BRIEF.md) at the start of every session. Newest milestone first.
 
-**Site:** deployed on Vercel. First production deployment (8 October 2026):
-https://postgres-fadhul-nwsdktcod-fadhulusama-gmailcoms-projects.vercel.app. That is a
-per-deployment URL; replace it with the project's stable production domain once the learner
-sends it.
+**Site:** https://postgres-fadhul.vercel.app/ (Vercel, production domain; every push to the default
+branch deploys). Per-deployment URLs sit behind Vercel's login, so share only this one.
 **Repository:** https://github.com/justfadhul/postgres-fadhul (default branch
 `claude/eloquent-cannon-pvvwiw`)
 
-## Milestone 0: scaffold, setup, spikes (built, stopped for review)
+## Milestone 1: Module 1 end to end (built, stopped for the learner's iPhone test)
+
+### Done
+
+- **Design:** rebuilt to the approved Claude Design prototype (warm paper, ink, orange accent,
+  condensed display type, small radii). Phone: cards and a bottom tab bar. Wide screens (960 px and
+  up): an editorial layout with a masthead. Light by default, dark option.
+- **Workbench** (`#/workbench`, `#/workbench/<challenge>`): CodeMirror 6 with PostgreSQL
+  highlighting at 16 px; Run (Cmd/Ctrl+Enter), Explain (`EXPLAIN (ANALYZE, BUFFERS)` in a rolled-back
+  transaction, shown as a readable tree with buffer counts), Reset dataset, `\d` helpers through
+  `psql-describe`, errors with SQLSTATE and a caret at the error position, and Stop for a runaway
+  query (restarts the worker; data is kept). On phones: a dark editor, a key row of SQL symbols and
+  a dock with Run, both kept above the on-screen keyboard with `visualViewport`.
+- **Engine:** downloads only after the learner agrees, with the size shown first; seeds the
+  standard clinic dataset on first open; values come back as PostgreSQL text so output matches psql.
+- **Lessons:** MDX reader with runnable SQL blocks (run in a rolled-back transaction, or open in the
+  workbench), quick checks with explanations, margin notes on wide screens, Mark as done.
+- **Grading:** result grader (reference and learner query on the same data, in one rolled-back
+  transaction; numbers by value, everything else as text; order only when asked; `requires` and
+  `forbids` shape rules over SQL with comments, strings and quoted names removed by a small lexer).
+  `setup` adds test rows the generated data lacks (ties, patients with no visits, visits just after
+  midnight Kampala time on boundary days, visits away from home, a three-step referral chain); the
+  learner can read them under the challenge.
+- **Progress:** IndexedDB (lessons done, quick-check answers, attempts, drafts, study time, streak),
+  Today page with the next lesson and this week's time, JSON export (share sheet or download) and
+  import with validation, a reminder on Today to export after each finished module (and weekly
+  otherwise), theme setting, storage persistence request.
+- **PWA:** the app shell and lessons work offline after the first visit; the engine is cached after
+  its first download.
+- **Module 1, SQL fluency:** 7 lessons (joins, grouping, subqueries and CTEs, recursive CTEs,
+  window functions, NULL, dates and time zones) with 45 runnable SQL blocks; 24 quick checks (20
+  verified against PostgreSQL by the tests); a 30-query assignment; "latest visit three ways"
+  (DISTINCT ON, window, LATERAL) with a measured comparison. All Browser tier.
+- **Content tests:** every SQL block runs (and fails with the stated SQLSTATE, or returns the stated
+  row count, where the lesson says so); every quick check is placed and verified; every challenge's
+  reference passes its own grader; 134 alternative correct answers pass and 239 plausible wrong
+  answers fail. CI runs them on the small and the standard dataset.
+
+### Evidence
+
+- `npm run check`: 652 tests passed, 1 skipped (the large seed, run in CI with `SPIKE_LARGE=1`).
+  Content tests on standard (`CONTENT_SIZE=standard`): 605 passed in 2 minutes.
+- `npm run check:size`: first-load JavaScript 117.4 KB gzipped (budget 150 KB); engine 5.89 MB
+  gzipped.
+- Deployed check, run [37746425092](https://github.com/justfadhul/postgres-fadhul/actions/runs/37746425092)
+  against https://postgres-fadhul.vercel.app/: shell, service worker and manifest served; engine
+  Brotli-compressed by Vercel, 5.50 MB on the wire, cached for a year (SPIKES.md, finding 2).
+- Local end-to-end (desktop Chromium and 360 px mobile Chromium): 19 passed, 3 skipped (WebKit-only
+  or large-seed cases). Covers layout at every route (no sideways scroll, 44 px targets), Run,
+  error position, `\dt`, Explain, passing challenge a01, lesson block, quick check, Mark as done,
+  the key row, export and import, offline lessons, and no engine download before consent.
+- **fact-checker** on all 7 lessons and the quick checks: 5 wrong claims and 15 unclear ones. All
+  fixed (commit 4f641ed): the foreign key note, "aggregates skip NULLs", a wrong cross-reference,
+  the server time zone default, the CYCLE explanation, `transform_null_equals`, terms defined on
+  first use, an untestable MySQL remark removed. The three error examples are now runnable and
+  tested for their SQLSTATE; a test checks that PGlite starts in `Etc/GMT0`.
+- **grader-breaker** on all 33 challenges: about 250 attacks on small, standard and large. Before
+  the fixes, wrong answers passed in a21 and a23 (on standard), a30 (on small), and through
+  shape-rule tricks (`AS "distinct on"`, dollar quotes, nested comments, a dummy `WITH RECURSIVE`).
+  Fixed by rewording a21, a23 and a30, the lexer in `stripSql`, and grader `setup` rows (commit
+  f979407). Timings measured for the three-ways text: LATERAL without an index took 308 s on
+  standard in Node; with the index, all three took under 0.6 s.
+
+### Known issues
+
+- **One grader leak left:** in the LATERAL version of "latest visit", an answer with no id
+  tie-break passes, because the index the task asks for returns tied rows in id order anyway. The
+  answer is right by accident, not by rule. Listed, not fixed.
+- Two alternative answers are slow on standard without an index (a14's second one 11 s, a15's
+  second one 6 s in Node); a phone will be slower. Stop cancels them.
+- The engine is 5.5 MB on the wire, not under 3 MB as the brief assumed (SPIKES.md, finding 2).
+- `navigator.storage.persist()` returned false on the iPhone in Safari; it may be granted to the
+  Home Screen app. Export is the safety net, and Today reminds about it.
+- Safari's storage figure (475 MB) is unexplained until the phone prints `pg_database_size`.
+- WebKit tests and the link check run only in CI (this sandbox has no WebKit and no direct
+  internet).
+- The link to Use The Index, Luke points at the book's home page; the dates chapter URL was not
+  verified, so it is not linked directly.
+
+### Check by hand on the iPhone
+
+WebKit emulation is not iOS Safari. Please try these on the phone, at
+https://postgres-fadhul.vercel.app/:
+
+1. Open a lesson, tap **Run** on a SQL block, accept the download, and wait for the answer.
+2. Workbench: tap into the editor. Do the key row and the Run dock stay above the keyboard, and
+   does the editor not zoom? Type with the key row, run, then try an error and a wide result
+   (does the table scroll sideways inside its box, not the page?).
+3. A challenge: get one wrong, read the message, then pass it. Try **Show a hint**.
+4. Turn on Airplane Mode, reload, and open a lesson you have not opened before.
+5. Settings: **Export** (does the share sheet appear?), then **Import** the file back.
+6. Optional: Add to Home Screen, open it from there, and see whether Settings now says storage is
+   persistent.
+7. Engine check (`#/spikes`): **Download engine and run checks**, then **standard**. Copy and send
+   the results (they include exclusion constraints, row-level security and EXPLAIN on the phone,
+   and the database's own size).
+8. Anything that feels wrong: text size, contrast in dark mode, buttons too close together.
+
+### Decisions
+
+- Modules 2, 3 and 6 stay Browser tier; standard dataset by default (spike results approved).
+- Hosting on Vercel, checked at the production domain; no environment variables.
+- Lesson blocks may state `-- Expect error XXXXX` or `-- Expect N rows`, and the tests hold them
+  to it (new-lesson skill).
+- Graders may add `setup` rows, shown to the learner (new-challenge skill).
+- CI also runs the content tests on the standard dataset, the one learners use.
+
+### Next
+
+Milestone 2 (Modules 2 and 3, constraint and plan graders) starts only after the learner has used
+Module 1 on the iPhone and said what to change (BRIEF.md, section 10).
+
+## Milestone 0: scaffold, setup, spikes (done)
 
 ### Done
 
@@ -59,24 +169,17 @@ sends it.
 
 ### Waiting on the learner
 
-1. ~~Import the repository into Vercel.~~ Done. Still needed: the stable production domain. The
-   deployed-site check assumes `https://postgres-fadhul.vercel.app/`; if the domain differs, set
-   the repository variable `SITE_URL`. (Per-deployment URLs redirect to the Vercel login page
-   because of Deployment Protection, so the check cannot use them.)
-2. **Approve the spike results and tiers** in [`SPIKES.md`](SPIKES.md): Modules 2, 3 and 6 stay
-   Browser tier; standard dataset by default.
-3. **One more engine check on the iPhone.** The first phone results passed reopen, persistence
-   and the large seed (SPIKES.md, "Real iPhone"). Still to run: tap **Download engine and run
-   checks** (exclusion, RLS and EXPLAIN on the phone), then **standard**, which now also prints
-   the database's own size. Copy and send.
+1. ~~Import the repository into Vercel~~ and the production domain: done
+   (https://postgres-fadhul.vercel.app/).
+2. ~~Approve the spike results and tiers~~: approved.
+3. One more engine check on the iPhone: now item 7 of Milestone 1's "Check by hand".
 4. **Optional, recommended:** a separate cloud environment for this repo without the for-edith
    secrets (see CLAUDE_CODE_SETUP.md).
 
 ### Known issues
 
-- Engine download is 5.9 MB gzipped, not under 3 MB as the brief assumed. Whether Vercel
-  compresses `.wasm` and `.data` is unknown until the first deployment;
-  `scripts/check-deployed.mjs` measures it. Vite's local preview server does **not** compress
+- Engine download is 5.9 MB gzipped, not under 3 MB as the brief assumed. Vercel serves it with
+  Brotli, 5.50 MB on the wire (see Milestone 1). Vite's local preview server does **not** compress
   `.wasm` (12.8 MB on the wire), so local measurements say nothing about Vercel.
 - WebKit's `navigator.storage.estimate()` figures look inflated in emulation; check on a real
   iPhone.
@@ -98,16 +201,6 @@ sends it.
 - Hosting moved from GitHub Pages to Vercel at the learner's request; base path `/` (PLAN.md, item 9).
 - Repository `postgres-fadhul` (PLAN.md, item 4).
 - No mod in Milestone 0; this was a cloud session (CLAUDE_CODE_SETUP.md).
-
-## Next: Milestone 1 (after approval)
-
-1. If Vercel serves the engine uncompressed: pre-compressed engine files decompressed in the worker.
-2. Storage module (IndexedDB) with JSON export and import, plus an export reminder.
-3. Workbench: CodeMirror 6, Run, Explain, Reset, `\d` helpers, error display with position, and
-   the iOS key row using `visualViewport`.
-4. Lesson reader (MDX), quick checks, result grader with `mustPass` and `mustFail` tests.
-5. Module 1 content end to end, `fact-checker` and `grader-breaker` passes, then stop for the
-   learner to test on his iPhone.
 
 ## Suggestions outside the brief (not built)
 

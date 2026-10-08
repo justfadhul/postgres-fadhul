@@ -100,3 +100,17 @@ export function formatMinutes(seconds: number): string {
   if (m < 60) return `${m} min`
   return `${Math.floor(m / 60)} h ${m % 60} min`
 }
+
+/**
+ * Whether to remind the learner to export. The brief asks for a reminder after each module: a
+ * finished module with progress newer than the last export asks at once; otherwise, unsaved
+ * progress asks once a week (or at once if the learner has never exported).
+ */
+export function exportReminder(s: StateSnapshot, lastExport: string | undefined, now: number) {
+  const latest = [...Object.values(s.progress).map((p) => p.updatedAt), ...Object.values(s.attempts).map((a) => a.at)].sort().pop()
+  const daysSinceExport = lastExport ? Math.floor((now - Date.parse(lastExport)) / 86_400_000) : undefined
+  const unsaved = !!latest && (!lastExport || latest > lastExport)
+  const finished = MODULES.filter((m) => MODULE_CONTENT[m.id] && moduleProgress(m.id, s).percent === 100).pop()
+  const module = unsaved ? finished : undefined
+  return { due: unsaved && (!!module || !lastExport || (daysSinceExport ?? 99) >= 7), module, daysSinceExport }
+}

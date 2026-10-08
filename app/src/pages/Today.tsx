@@ -4,7 +4,7 @@ import { MODULE_CONTENT } from '@content/modules'
 import { MODULES } from '@content/syllabus'
 import { THREE_WAYS_IDS } from '@content/modules/m01/challenges'
 import { CourseIndex } from '../course/CourseIndex'
-import { formatMinutes, hoursStudied, moduleProgress, nextLesson, streak, thisWeek, type StateSnapshot } from '../course/progress'
+import { exportReminder, formatMinutes, hoursStudied, moduleProgress, nextLesson, streak, thisWeek, type StateSnapshot } from '../course/progress'
 import { useSnapshot } from '../course/useSnapshot'
 import { IconMoon } from '../layout/icons'
 import { useRecord } from '../storage/hooks'
@@ -39,16 +39,14 @@ function useTodayData() {
   const mp = moduleProgress(current.id, s)
   const week = thisWeek(s.activity)
   const weekSeconds = week.reduce((a, d) => a + d.seconds, 0)
-  const latestProgress = [...Object.values(s.progress).map((p) => p.updatedAt), ...Object.values(s.attempts).map((a) => a.at)].sort().pop()
-  const daysSinceExport = lastExport ? Math.floor((now - Date.parse(lastExport)) / 86_400_000) : undefined
-  const backupDue = !!latestProgress && (!lastExport || (latestProgress > lastExport && (daysSinceExport ?? 99) >= 7))
+  const { due: backupDue, module: moduleBackup, daysSinceExport } = exportReminder(s, lastExport, now)
   return {
     s, current, mp, week, weekSeconds,
     hours: hoursStudied(s.activity),
     streak: streak(s.activity),
     next: nextLesson(s),
     challenge: nextChallenge(s),
-    lastExport, daysSinceExport, backupDue,
+    lastExport, daysSinceExport, backupDue, moduleBackup,
   }
 }
 
@@ -62,6 +60,7 @@ export function Today() {
 }
 
 function exportLine(d: Data) {
+  if (d.moduleBackup) return `Module ${d.moduleBackup.number} finished: export now`
   if (!d.lastExport) return 'Never exported'
   return d.daysSinceExport === 0 ? 'Last export today' : `Last export ${d.daysSinceExport} day${d.daysSinceExport === 1 ? '' : 's'} ago`
 }
@@ -179,7 +178,7 @@ function TodayWide({ d }: { d: Data }) {
           <h2 className="eyebrow">This week</h2>
           <span className="muted" style={{ fontSize: 14 }}>
             {d.week.filter((x) => x.seconds >= 60).length} study day{d.week.filter((x) => x.seconds >= 60).length === 1 ? '' : 's'} · {formatMinutes(d.weekSeconds)}
-            {d.backupDue && <> · <Link href="/settings" style={{ color: 'var(--accent)', fontWeight: 600 }}>back up your progress</Link></>}
+            {d.backupDue && <> · <Link href="/settings" style={{ color: 'var(--accent)', fontWeight: 600 }}>{d.moduleBackup ? `Module ${d.moduleBackup.number} finished: back up your progress` : 'back up your progress'}</Link></>}
           </span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', borderLeft: '1px solid var(--hair)' }}>
