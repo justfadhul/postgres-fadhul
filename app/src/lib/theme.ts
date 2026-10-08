@@ -14,7 +14,7 @@ export function readTheme(): Theme {
 
 export function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0f1216' : '#0b5394')
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#1b1b1b' : '#ecebe7')
   try {
     localStorage.setItem(KEY, theme)
   } catch {

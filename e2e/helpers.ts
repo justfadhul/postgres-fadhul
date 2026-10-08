@@ -7,10 +7,16 @@ export async function noHorizontalScroll(page: Page) {
 
 export async function tapTargetsAtLeast44(page: Page) {
   const small = await page.evaluate(() =>
-    [...document.querySelectorAll<HTMLElement>('.btn, .icon-btn, .bottom-nav a, .masthead nav a, button.link, a.link')]
+    [...document.querySelectorAll<HTMLElement>('.btn, .icon-btn, .bottom-nav a, .masthead nav a, button.link, a.link, [role=tab], summary')]
       .filter((el) => el.offsetParent !== null && getComputedStyle(el).visibility !== 'hidden')
-      .map((el) => ({ text: (el.textContent ?? '').trim().slice(0, 40) || el.getAttribute('aria-label'), h: el.getBoundingClientRect().height }))
-      .filter((r) => r.h < 44),
+      .map((el) => {
+        const r = el.getBoundingClientRect()
+        // Text links are as wide as their words; everything else must be 44 px both ways.
+        const widthCounts = !el.classList.contains('link')
+        return { text: (el.textContent ?? '').trim().slice(0, 40) || el.getAttribute('aria-label'), h: Math.round(r.height), w: Math.round(r.width), widthCounts }
+      })
+      .filter((r) => r.h < 44 || (r.widthCounts && r.w < 44))
+      .map(({ text, h, w }) => ({ text, h, w })),
   )
   expect(small, 'tap targets must be at least 44 px tall').toEqual([])
 }

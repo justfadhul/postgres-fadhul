@@ -75,6 +75,8 @@ export function SqlEditor({ value, onChange, onRun, errorPosition, errorOffset =
     if (!host.current) return
     const extensions: Extension[] = [
       lineNumbers(),
+      // Long lines wrap, so a phone never hides the start of a query off to the left.
+      EditorView.lineWrapping,
       history(),
       drawSelection(),
       bracketMatching(),

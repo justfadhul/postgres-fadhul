@@ -56,6 +56,20 @@ function WorkbenchPage({ id }: { id?: string }) {
   const [busy, setBusy] = useState(false)
   const [schemaKey, setSchemaKey] = useState(0)
   const inset = useKeyboardInset()
+  const outputRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDetailsElement>(null)
+
+  // The More menu closes on a tap outside it, or Escape.
+  useEffect(() => {
+    const close = (e: Event) => {
+      const menu = menuRef.current
+      if (!menu?.open) return
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !menu.contains(e.target as Node)) menu.open = false
+    }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', close)
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', close) }
+  }, [])
 
   useEffect(() => { request() }, [request])
 
@@ -113,6 +127,9 @@ function WorkbenchPage({ id }: { id?: string }) {
     try {
       const rep = await gradeResult(engine, text, challenge.grader)
       setGrade(rep)
+      // Bring the verdict into view; on a phone it would otherwise sit off-screen.
+      const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      requestAnimationFrame(() => outputRef.current?.scrollIntoView({ block: wide ? 'nearest' : 'start', behavior: still ? 'auto' : 'smooth' }))
       setRan({ text, offset: 0 })
       setError(rep.error ?? null)
       await update<AttemptRecord>('attempts', challenge.id, (old) => ({
@@ -136,7 +153,7 @@ function WorkbenchPage({ id }: { id?: string }) {
   const ready = status === 'ready' && engine && sql !== null
 
   const output = (
-    <div style={{ paddingTop: 8 }}>
+    <div ref={outputRef} role="tabpanel" aria-labelledby={`tab-${tab}`} style={{ paddingTop: 8, scrollMarginTop: 12, scrollMarginBottom: dark ? 170 : 0 }}>
       {busy && (
         <p role="status" style={{ margin: dark ? '8px 14px' : '8px 0', fontSize: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
           <span style={{ opacity: 0.8 }}>Running…</span>
@@ -150,7 +167,12 @@ function WorkbenchPage({ id }: { id?: string }) {
       {!busy && tab === 'plan' && !error && plan && <PlanView result={plan} dark={dark} />}
       {!busy && tab === 'check' && grade?.error && <ErrorView error={grade.error} sql={ran.text} dark={dark} />}
       {!busy && tab === 'check' && grade && !grade.error && (
-        <p style={{ margin: dark ? '8px 14px' : '8px 0', fontSize: 14 }}>{grade.pass ? 'Your rows match the reference answer.' : 'See the feedback above the editor.'}</p>
+        <div role="status" aria-live="polite" style={{ margin: dark ? '8px 14px' : '8px 0', fontSize: 14 }}>
+          <p style={{ margin: 0, fontWeight: 700, color: grade.pass ? (dark ? '#5fd08a' : 'var(--right)') : dark ? '#f2a07a' : 'var(--accent)' }}>{grade.pass ? 'Pass' : 'Not yet'}</p>
+          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+            {grade.messages.map((m, i) => <li key={i}>{m}</li>)}
+          </ul>
+        </div>
       )}
       {!busy && !out && !error && described === null && !plan && tab === 'results' && (
         <pre className="scroll-x" style={{ margin: dark ? '8px 14px' : '8px 0', fontSize: 13, opacity: 0.75 }}>{DESCRIBE_HELP}</pre>
@@ -161,8 +183,8 @@ function WorkbenchPage({ id }: { id?: string }) {
   const tabs = (
     <div role="tablist" aria-label="Output" style={{ display: 'flex', gap: dark ? 18 : 28 }}>
       {(['results', 'plan', ...(challenge ? ['check'] : [])] as Tab[]).map((t) => (
-        <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
-          style={{ minHeight: 44, padding: 0, background: 'none', border: 0, borderBottom: `${dark ? 2 : 4}px solid ${tab === t ? '#f26b3a' : 'transparent'}`, marginBottom: -2, fontSize: 15, fontWeight: 700, color: tab === t ? undefined : dark ? 'var(--ed-muted)' : 'var(--muted)', cursor: 'pointer' }}>
+        <button key={t} id={`tab-${t}`} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
+          style={{ minHeight: 44, minWidth: 44, padding: '0 4px', background: 'none', border: 0, borderBottom: `${dark ? 2 : 4}px solid ${tab === t ? '#f26b3a' : 'transparent'}`, marginBottom: -2, fontSize: 15, fontWeight: 700, color: tab === t ? undefined : dark ? 'var(--ed-muted)' : 'var(--muted)', cursor: 'pointer' }}>
           {t === 'results' ? 'Results' : t === 'plan' ? 'Plan' : 'Check answer'}
         </button>
       ))}
@@ -170,7 +192,7 @@ function WorkbenchPage({ id }: { id?: string }) {
   )
 
   const challengePanel = challenge && (
-    <ChallengePanel challenge={challenge} position={position} attempt={attempt} grade={grade} nextHref={nextId ? `/workbench/${nextId}` : undefined} backHref={backHref} dark={dark} />
+    <ChallengePanel challenge={challenge} position={position} attempt={attempt} nextHref={nextId ? `/workbench/${nextId}` : undefined} backHref={backHref} dark={dark} />
   )
 
   if (!wide) {
@@ -182,10 +204,10 @@ function WorkbenchPage({ id }: { id?: string }) {
             <span className="dot" style={{ background: status === 'ready' ? '#3fb950' : '#888' }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{status === 'ready' ? `${version.replace(/ \(PGlite[^)]*\)/, '')} · ${dataset}` : 'PostgreSQL'}</span>
           </span>
-          <details style={{ position: 'relative' }}>
+          <details ref={menuRef} style={{ position: 'relative' }}>
             <summary aria-label="More actions" className="icon-btn" style={{ listStyle: 'none', background: '#222', borderColor: '#333', color: '#ddd' }}>•••</summary>
             <div style={{ position: 'absolute', right: 0, top: 50, zIndex: 30, minWidth: 220, background: '#232323', border: '1px solid #333', borderRadius: 6, padding: 6, display: 'flex', flexDirection: 'column' }}>
-              <button type="button" className="btn" style={{ border: 0, justifyContent: 'flex-start', color: '#eee' }} onClick={() => { if (window.confirm('Rebuild the clinic dataset? Tables you created in the clinic schema are removed.')) void reset().then(() => setSchemaKey((k) => k + 1)) }}>Reset dataset</button>
+              <button type="button" className="btn" style={{ border: 0, justifyContent: 'flex-start', color: '#eee' }} onClick={() => { if (menuRef.current) menuRef.current.open = false; if (window.confirm('Rebuild the clinic dataset? Tables you created in the clinic schema are removed.')) void reset().then(() => setSchemaKey((k) => k + 1)) }}>Reset dataset</button>
               <Link href="/settings" className="btn" style={{ border: 0, justifyContent: 'flex-start', color: '#eee' }}>Settings</Link>
             </div>
           </details>
@@ -207,13 +229,15 @@ function WorkbenchPage({ id }: { id?: string }) {
           </section>
         )}
         <div style={{ position: 'fixed', left: 0, right: 0, bottom: inset, zIndex: 25, padding: `24px 12px calc(${inset ? '8px' : 'env(safe-area-inset-bottom) + 12px'})`, background: 'linear-gradient(to top, var(--ed-bg) 72%, rgba(22,22,22,0))' }}>
-          <div role="toolbar" aria-label="SQL keys" className="scroll-x" style={{ display: 'flex', gap: 6, paddingBottom: 10 }}>
+          {/* Fades at the right edge so it is clear the row scrolls; the spacer lets the last key clear the fade. */}
+          <div role="toolbar" aria-label="SQL keys" className="scroll-x" style={{ display: 'flex', gap: 6, paddingBottom: 10, maskImage: 'linear-gradient(to right, #000 calc(100% - 32px), transparent)', WebkitMaskImage: 'linear-gradient(to right, #000 calc(100% - 32px), transparent)' }}>
             {KEYS.map((k) => (
               <button key={k} type="button" aria-label={k === '\t' ? 'Tab' : `Insert ${k}`} onMouseDown={(e) => e.preventDefault()} onClick={() => editor.current?.insert(k === '\t' ? '  ' : k)}
                 style={{ flex: 'none', minWidth: 44, height: 44, padding: '0 12px', borderRadius: 4, background: 'var(--ed-key)', border: 0, color: '#e7e7e7', fontFamily: k === '\t' ? 'var(--sans)' : 'var(--mono)', fontSize: k === '\t' ? 15 : 17 }}>
                 {k === '\t' ? 'Tab' : k}
               </button>
             ))}
+            <span aria-hidden style={{ flex: 'none', width: 26 }} />
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" disabled={!ready || busy} onMouseDown={(e) => e.preventDefault()} onClick={() => void run()} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 12, minHeight: 56, padding: '0 18px', borderRadius: 6, background: 'var(--ed-key)', border: 0, color: '#efefef', fontSize: 17, fontWeight: 600 }}>

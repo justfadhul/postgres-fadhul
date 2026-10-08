@@ -27,7 +27,7 @@ export function SchemaList({ session, refreshKey, onInsert }: { session: SqlSess
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: 8, borderBottom: '2px solid var(--ink)' }}>
         <h2 className="eyebrow">clinic · tables</h2>
-        <button type="button" className="mono" onClick={() => onInsert('\\dt')} style={{ background: 'none', border: 0, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', minHeight: 32 }}>\dt</button>
+        <button type="button" className="mono" onClick={() => onInsert('\\dt')} style={{ background: 'none', border: 0, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', minHeight: 44, minWidth: 44 }}>\dt</button>
       </div>
       {tables.map((t) => (
         <div key={t.name} style={{ borderBottom: '1px solid var(--hair)' }}>
@@ -38,7 +38,7 @@ export function SchemaList({ session, refreshKey, onInsert }: { session: SqlSess
           {open === t.name && (
             <div style={{ padding: '0 0 12px 14px', marginBottom: 10, borderLeft: '2px solid var(--accent)', display: 'flex', flexDirection: 'column', gap: 4 }}>
               {cols.map(([n, ty]) => (
-                <button key={n} type="button" className="mono" title={`Insert ${n}`} onClick={() => onInsert(n)} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, background: 'none', border: 0, padding: '2px 0', textAlign: 'left', cursor: 'pointer' }}>
+                <button key={n} type="button" className="mono" title={`Insert ${n}`} onClick={() => onInsert(n)} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, background: 'none', border: 0, padding: 0, minHeight: 44, alignItems: 'center', textAlign: 'left', cursor: 'pointer' }}>
                   <span>{n}</span><span style={{ color: 'var(--type)' }}>{ty}</span>
                 </button>
               ))}

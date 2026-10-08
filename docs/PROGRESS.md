@@ -70,6 +70,20 @@ branch deploys). Per-deployment URLs sit behind Vercel's login, so share only th
   f979407). Timings measured for the three-ways text: LATERAL without an index took 308 s on
   standard in Node; with the index, all three took under 0.6 s.
 
+- **mobile-qa** at 360 and 390 px, light and dark (92 screenshots): no sideways page scroll, 16 px
+  inputs, no hover-only controls. Fixed: Check feedback was off-screen on phones (now in the Check
+  tab and scrolled into view); "Next challenge" was invisible in light theme on the dark workbench;
+  the editor did not wrap long lines; a one-column result scrolled sideways; long tasks pushed the
+  editor off the first screen (now clamped, with "Show the whole task"); tabs, Resources links, the
+  SQLSTATE link and schema buttons under 44 px; contrast of the light accent (now #b83c0b, 4.8:1),
+  SQL comments and unfinished module titles; the More menu now closes on an outside tap; no
+  open/closed marker on expandable sections; the browser bar was tinted blue. The tap-target test
+  now checks width as well as height, and covers tabs and expandable sections.
+- **A real bug found through CI:** lessons jumped back to the top while being scrolled (the
+  reading-progress bar re-rendered the page, and an effect that should run once per lesson ran on
+  every render). Fixed, with an e2e test that fails on the old code. Please confirm on the iPhone
+  that a long lesson scrolls normally.
+
 ### Known issues
 
 - **One grader leak left:** in the LATERAL version of "latest visit", an answer with no id
@@ -83,6 +97,11 @@ branch deploys). Per-deployment URLs sit behind Vercel's login, so share only th
 - Safari's storage figure (475 MB) is unexplained until the phone prints `pg_database_size`.
 - WebKit tests and the link check run only in CI (this sandbox has no WebKit and no direct
   internet).
+- Wide results and the key row scroll sideways inside their own box; the result summary now says
+  how many columns there are, and the key row fades at the edge, but there is no fade on tables.
+- Seen once by mobile-qa and not reproduced in 8 later tries: the phone workbench stayed on
+  "Starting PostgreSQL…" for over 3 minutes. If it happens on the iPhone, please note what was on
+  screen.
 - The link to Use The Index, Luke points at the book's home page; the dates chapter URL was not
   verified, so it is not linked directly.
 

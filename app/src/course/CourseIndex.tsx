@@ -30,10 +30,10 @@ export function CourseIndex({ snapshot, wide }: { snapshot: StateSnapshot; wide:
                   type="button"
                   aria-expanded={isOpen}
                   onClick={() => setOpen(isOpen ? undefined : m.id)}
-                  style={{ width: '100%', display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: wide ? '8px 24px' : '0 12px', padding: wide ? '20px 0' : '18px 0', background: 'none', border: 0, textAlign: 'left', cursor: 'pointer' }}
+                  style={{ width: '100%', display: 'flex', flexWrap: wide ? 'wrap' : 'nowrap', alignItems: 'baseline', gap: wide ? '8px 24px' : '0 12px', padding: wide ? '20px 0' : '18px 0', background: 'none', border: 0, textAlign: 'left', cursor: 'pointer' }}
                 >
-                  <span className="mono" style={{ fontSize: 13, color: 'var(--muted)', width: wide ? 28 : 22 }}>{String(m.number).padStart(2, '0')}</span>
-                  <span className="display" style={{ flex: wide ? '1 1 480px' : 1, fontSize: wide ? 64 : 34, color: content ? undefined : 'var(--muted)', opacity: content ? 1 : 0.6 }}>
+                  <span className="mono" style={{ fontSize: 13, color: 'var(--muted)', width: wide ? 28 : 22, flex: 'none' }}>{String(m.number).padStart(2, '0')}</span>
+                  <span className="display" style={{ flex: wide ? '1 1 480px' : 1, minWidth: 0, overflowWrap: 'anywhere', fontSize: wide ? 64 : 34, color: content ? undefined : 'var(--muted)' }}>
                     {m.title}
                   </span>
                   {wide && <span style={{ fontSize: 14, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{TIER_LABEL[m.tier]} · {m.hours} h</span>}

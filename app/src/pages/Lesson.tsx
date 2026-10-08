@@ -99,10 +99,10 @@ function LessonPage({ id }: { id: string }) {
             <span className="eyebrow">← Previous · {prev.number}</span>
             <span className="display" style={{ fontSize: wide ? 40 : 26, color: 'var(--muted)' }}>{prev.title}</span>
           </Link>
-        ) : <span style={{ flex: '1 1 260px' }} />}
+        ) : wide ? <span style={{ flex: '1 1 260px' }} /> : null}
         {next && (
-          <Link href={`/lesson/${next.id}`} onClick={() => { if (!done) void markDone() }} style={{ flex: '1 1 260px', display: 'flex', flexDirection: 'column', gap: 8, padding: '18px 0 18px 20px', borderLeft: '1px solid var(--hair)', textDecoration: 'none', textAlign: 'right' }}>
-            <span className="eyebrow" style={{ color: 'var(--accent)' }}>{done ? 'Next' : 'Mark done and continue'} · {next.number} →</span>
+          <Link href={`/lesson/${next.id}`} onClick={() => { if (!done) void markDone() }} style={{ flex: '1 1 260px', display: 'flex', flexDirection: 'column', gap: 8, padding: wide ? '18px 0 18px 20px' : '18px 0', borderLeft: wide ? '1px solid var(--hair)' : 0, textDecoration: 'none', textAlign: 'right' }}>
+            <span className="eyebrow" style={{ color: 'var(--accent)', fontWeight: 700 }}>{done ? 'Next' : 'Mark done and continue'} · {next.number} →</span>
             <span className="display" style={{ fontSize: wide ? 40 : 26 }}>{next.title}</span>
           </Link>
         )}

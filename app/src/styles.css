@@ -8,7 +8,7 @@
   --ink: #151515;
   --muted: #5f5c56;
   --hair: #c9c6bf;
-  --accent: #c4410c;
+  --accent: #b83c0b;
   --on-accent: #ffffff;
   --accent-soft: #f2cdbd;
   --pill: #151515;
@@ -25,7 +25,7 @@
   --ed-fn: #d6e276;
   --ed-num: #a9a3ff;
   --ed-str: #f0b27a;
-  --ed-com: #767676;
+  --ed-com: #8c8c8c;
   --ed-gutter: #5d5d5d;
   --ed-key: #262626;
   --display: 'HelveticaNeue-CondensedBold', 'Helvetica Neue Condensed Bold', 'Arial Narrow', system-ui, sans-serif;
@@ -145,6 +145,13 @@ img, svg { flex: none; }
 .rule { border: 0; border-top: 1px solid var(--hair); margin: 0; }
 .rule-strong { border-top: 2px solid var(--ink); }
 .scroll-x { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+/* A visible open/closed marker on <details>, whatever the summary's display. */
+.disclosure > summary { list-style: none; }
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before { content: '▸'; display: inline-block; width: 1.2em; flex: none; }
+.disclosure[open] > summary::before { content: '▾'; }
+/* Code shown for reading (grader setup, plan text). */
+.code-box { margin: 0; padding: 10px 12px; font-size: 13px; line-height: 1.5; border-radius: var(--r-sm); background: var(--ed-bg); color: #e7e7e7; }
 .notice { border-left: 3px solid var(--accent); background: var(--surface); padding: 12px 14px; border-radius: var(--r-sm); }
 
 /* Checkbox mark */

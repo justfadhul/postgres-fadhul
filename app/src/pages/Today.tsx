@@ -241,8 +241,9 @@ function Ring({ percent, label }: { percent: number; label: string }) {
 }
 
 function ThemeButton() {
+  const [dark, setDark] = useState(() => readTheme() === 'dark')
   return (
-    <button type="button" className="icon-btn" aria-label="Switch between light and dark theme" onClick={() => applyTheme(readTheme() === 'dark' ? 'light' : 'dark')}>
+    <button type="button" className="icon-btn" aria-label="Dark theme" aria-pressed={dark} onClick={() => { applyTheme(dark ? 'light' : 'dark'); setDark(!dark) }}>
       <IconMoon />
     </button>
   )

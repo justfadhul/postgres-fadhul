@@ -5,8 +5,8 @@ import { flatten, nodeDetail, nodeTitle, totalBuffers, type ExplainResult } from
 
 export function ResultTable({ result, dark }: { result: RawResult; dark: boolean }) {
   return (
-    <div className="scroll-x">
-      <table className="table" style={dark ? { margin: '0 14px' } : undefined}>
+    <div className="scroll-x" style={dark ? { padding: '0 14px' } : undefined}>
+      <table className="table">
         <thead>
           <tr>{result.fields.map((f, i) => <th key={i} scope="col">{f.name}</th>)}</tr>
         </thead>
@@ -31,7 +31,11 @@ export function RunSummary({ out }: { out: RunOutput }) {
   const last = sets[sets.length - 1]
   const statements = out.results.length
   const parts: string[] = []
-  if (last) parts.push(`${last.totalRows.toLocaleString('en-GB')} row${last.totalRows === 1 ? '' : 's'}`)
+  if (last) {
+    parts.push(`${last.totalRows.toLocaleString('en-GB')} row${last.totalRows === 1 ? '' : 's'}`)
+    // On a phone only the first few columns fit; say how many there are.
+    if (last.fields.length > 2) parts.push(`${last.fields.length} columns`)
+  }
   else {
     const affected = out.results.reduce((s, r) => s + (r.affectedRows ?? 0), 0)
     parts.push(affected ? `${affected.toLocaleString('en-GB')} row${affected === 1 ? '' : 's'} changed` : 'Done')
@@ -96,8 +100,8 @@ export function ErrorView({ error, sql, dark }: { error: SqlErrorFields; sql: st
       {error.detail && <p style={{ margin: '8px 0 0', fontSize: 14 }}><b>Detail:</b> {error.detail}</p>}
       {error.hint && <p style={{ margin: '8px 0 0', fontSize: 14 }}><b>Hint:</b> {error.hint}</p>}
       {error.code && (
-        <p style={{ margin: '8px 0 0', fontSize: 13 }}>
-          <a href="https://www.postgresql.org/docs/current/errcodes-appendix.html" target="_blank" rel="noreferrer" style={{ color: muted }}>What SQLSTATE codes mean</a>
+        <p style={{ margin: '4px 0 0', fontSize: 14 }}>
+          <a href="https://www.postgresql.org/docs/current/errcodes-appendix.html" target="_blank" rel="noreferrer" className="link" style={{ color: muted, fontSize: 14 }}>What SQLSTATE codes mean</a>
         </p>
       )}
     </div>
@@ -130,9 +134,9 @@ export function PlanView({ result, dark }: { result: ExplainResult; dark: boolea
           )
         })}
       </ol>
-      <details style={{ marginTop: 12 }}>
+      <details className="disclosure" style={{ marginTop: 12 }}>
         <summary style={{ minHeight: 44, display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: 14 }}>Plan as text</summary>
-        <pre className="scroll-x" style={{ margin: 0, fontSize: 12, lineHeight: 1.5, padding: '8px 0' }}>{result.text}</pre>
+        <pre className="scroll-x code-box">{result.text}</pre>
       </details>
     </div>
   )
