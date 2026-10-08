@@ -35,6 +35,9 @@ relative claims. `verify` is only for facts that do not depend on the data (for 
 - A fenced block marked `sql` is **runnable**: the learner can run it, and the tests run it.
   Each block must run on its own (blocks run in separate rolled-back transactions). Keep result
   sets small (`LIMIT`), since a phone shows them.
+- When the prose says what a block does, make the test hold it to that with a first-line comment:
+  `-- Expect error 42803` (must fail with that SQLSTATE), `-- Expect no rows` or `-- Expect 2 rows`.
+  Show common mistakes this way, so the learner can run them and see the real error.
 - A fenced block marked `text` is shown as-is (output, transcripts). Never write expected output
   from memory: only show output you can justify, and prefer "run it and look at…".
 - `<QuickCheck id="m01-qc-05-1" />` places a quick check (2 to 4 per lesson, after the idea they test).
@@ -49,7 +52,8 @@ relative claims. `verify` is only for facts that do not depend on the data (for 
 
 1. One short paragraph: the clinic problem this solves and what the learner will be able to do.
 2. The idea, built up in 2 to 4 sections, each with a runnable example on the clinic data.
-3. A common mistake, shown and explained (the mistake must also run, or be in a `text` block).
+3. A common mistake, shown and explained: a runnable block marked `-- Expect error XXXXX` or with
+   its row count, so the test proves what the prose says.
 4. Where behaviour depends on version or settings, say so, including any PGlite difference
    (PGlite is PostgreSQL 18 in WebAssembly, single connection).
 5. `## Free sources`: 1 to 3 links.
