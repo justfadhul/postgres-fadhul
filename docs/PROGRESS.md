@@ -44,7 +44,11 @@ switched on once; see "Waiting on the learner")
   check passed; the strict link check found all 20 links OK; e2e gave 26 passed (WebKit
   included). Deploy failed because Pages is not switched on.
 - Devcontainer run 1 failed in post-create: `sudo -u postgres` needs a password in the base image.
-  It is fixed with `runuser`; see the latest Devcontainer run for the result.
+  Fixed with `runuser`. Run [37734051573](https://github.com/justfadhul/postgres-fadhul/actions/runs/37734051573)
+  passed: the image builds, and `make check LAB=env-check` inside it reports Node 24.21, Go 1.27.1,
+  Docker 29.8, the PostgreSQL 18.6 client and server, and SQLite 3.45.
+- CI run [37734051616](https://github.com/justfadhul/postgres-fadhul/actions/runs/37734051616):
+  check and e2e green again. Deploy fails at `configure-pages` until Pages is switched on.
 
 ### Waiting on the learner
 
