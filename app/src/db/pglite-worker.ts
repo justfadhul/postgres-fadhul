@@ -2,6 +2,7 @@
 import { PGlite } from '@electric-sql/pglite'
 import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist'
 import { toErrorFields, type Request, type Response } from './protocol'
+import { runRaw, SESSION_SETUP } from './raw'
 
 let db: Promise<PGlite> | null = null
 
@@ -24,7 +25,10 @@ async function handle(req: Request): Promise<unknown> {
         throw new Error('This database is open in another tab. Close the other tab and try again.')
       }
       // IndexedDB storage: PGlite's OPFS filesystem does not work in Safari.
-      db = PGlite.create({ dataDir: `idb://${req.name}`, extensions: { btree_gist } })
+      db = PGlite.create({ dataDir: `idb://${req.name}`, extensions: { btree_gist } }).then(async (pg) => {
+        await pg.exec(SESSION_SETUP)
+        return pg
+      })
       await db
       return true
     }
@@ -32,6 +36,8 @@ async function handle(req: Request): Promise<unknown> {
       return (await ready()).query(req.sql, req.params)
     case 'exec':
       return (await ready()).exec(req.sql)
+    case 'run':
+      return runRaw(await ready(), req.sql, req.maxRows)
     case 'close':
       if (db) await (await db).close()
       db = null

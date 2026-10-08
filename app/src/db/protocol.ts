@@ -6,6 +6,7 @@ export type Request =
   | { id: number; method: 'open'; name: string }
   | { id: number; method: 'query'; sql: string; params?: unknown[] }
   | { id: number; method: 'exec'; sql: string }
+  | { id: number; method: 'run'; sql: string; maxRows?: number }
   | { id: number; method: 'close' }
 
 export type Response =

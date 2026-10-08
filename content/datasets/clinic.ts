@@ -49,10 +49,11 @@ SET search_path = clinic, public;
 SELECT setseed(0.42);
 
 CREATE TABLE facilities (
-  id        integer PRIMARY KEY,
-  name      text NOT NULL,
-  district  text NOT NULL,
-  level     text NOT NULL CHECK (level IN ('HC III', 'HC IV', 'General Hospital'))
+  id                    integer PRIMARY KEY,
+  name                  text NOT NULL,
+  district              text NOT NULL,
+  level                 text NOT NULL CHECK (level IN ('HC III', 'HC IV', 'General Hospital')),
+  referral_facility_id  integer
 );
 
 CREATE TABLE clinicians (
@@ -120,11 +121,14 @@ INSERT INTO drugs (id, name, unit) VALUES
   (5, 'Amlodipine 5 mg', 'tablet'), (6, 'Oral rehydration salts', 'sachet'),
   (7, 'Ferrous sulphate + folic acid', 'tablet'), (8, 'Omeprazole 20 mg', 'capsule');
 
-INSERT INTO facilities (id, name, district, level)
+-- Referral chains: each HC III refers to the next facility (an HC IV), which
+-- refers to the next (a general hospital), which refers to nobody.
+INSERT INTO facilities (id, name, district, level, referral_facility_id)
 SELECT f,
        (${sqlArray(DISTRICTS)})[1 + (f - 1) % ${DISTRICTS.length}] || ' Health Centre ' || f,
        (${sqlArray(DISTRICTS)})[1 + (f - 1) % ${DISTRICTS.length}],
-       (ARRAY['HC III', 'HC IV', 'General Hospital'])[1 + (f - 1) % 3]
+       (ARRAY['HC III', 'HC IV', 'General Hospital'])[1 + (f - 1) % 3],
+       CASE WHEN (f - 1) % 3 < 2 AND f < ${facilities} THEN f + 1 END
 FROM generate_series(1, ${facilities}) AS f;
 
 INSERT INTO clinicians (id, facility_id, full_name, role)
@@ -170,6 +174,7 @@ INSERT INTO stock (facility_id, drug_id, quantity_on_hand)
 SELECT f.id, d.id, floor(random() * 500)::int
 FROM facilities f CROSS JOIN drugs d;
 
+ALTER TABLE facilities ADD FOREIGN KEY (referral_facility_id) REFERENCES facilities;
 ALTER TABLE clinicians ADD FOREIGN KEY (facility_id) REFERENCES facilities;
 ALTER TABLE patients ADD FOREIGN KEY (facility_id) REFERENCES facilities;
 ALTER TABLE visits ADD FOREIGN KEY (patient_id) REFERENCES patients;

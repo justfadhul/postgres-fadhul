@@ -1,10 +1,17 @@
 import type { Results } from '@electric-sql/pglite'
 import { SqlError, type Request, type Response } from './protocol'
+import type { RunOutput } from './raw'
 
 type Call = Request extends infer R ? (R extends { id: number } ? Omit<R, 'id'> : never) : never
 
+/** Anything that can run SQL as text: the browser engine, or PGlite directly in tests. */
+export interface SqlSession {
+  run(sql: string, maxRows?: number): Promise<RunOutput>
+  exec(sql: string): Promise<unknown>
+}
+
 /** PGlite running in a Web Worker, persisted to IndexedDB. */
-export class Engine {
+export class Engine implements SqlSession {
   #worker: Worker
   #next = 1
   #pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>()
@@ -50,6 +57,11 @@ export class Engine {
 
   exec(sql: string): Promise<Results[]> {
     return this.#call({ method: 'exec', sql }) as Promise<Results[]>
+  }
+
+  /** Runs statements and returns every result with values as PostgreSQL text. */
+  run(sql: string, maxRows?: number): Promise<RunOutput> {
+    return this.#call({ method: 'run', sql, maxRows }) as Promise<RunOutput>
   }
 
   async close(): Promise<void> {

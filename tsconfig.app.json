@@ -18,5 +18,6 @@
     "noEmit": true,
     "paths": { "@content/*": ["./content/*"] }
   },
-  "include": ["app/src", "content"]
+  "include": ["app/src", "content"],
+  "exclude": ["content/**/*.test.ts"]
 }
