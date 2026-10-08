@@ -1,5 +1,5 @@
 // Content tests: a lesson, check or challenge that fails here does not ship.
-//  - every ```sql block in every lesson runs against the small dataset (same shape as standard),
+//  - every ```sql block in every lesson runs against the small dataset (CONTENT_SIZE to change it),
 //    and fails or returns the row count it says it does
 //  - every quick check is placed in exactly one lesson, and verifiable ones are verified
 //  - every challenge's reference runs; every mustPass passes; every mustFail fails
@@ -14,10 +14,13 @@ import { seededDb, type TestDb } from '../tests/helpers/session'
 import { gradeResult } from '../app/src/grading/result'
 import { lastResultSet, type RunOutput } from '../app/src/db/raw'
 
+// Small by default (fast). CI also runs this file with CONTENT_SIZE=standard, the size learners use.
+const SIZE = (process.env.CONTENT_SIZE ?? 'small') as keyof typeof SIZES
+
 let db: TestDb
 beforeAll(async () => {
-  db = await seededDb(SIZES.small)
-}, 120_000)
+  db = await seededDb(SIZES[SIZE])
+}, 600_000)
 afterAll(() => db.pg.close())
 
 /** Rows joined by "; ", values by ", ", NULL as NULL: the format QuickCheck.verify.expect uses. */
@@ -126,7 +129,7 @@ for (const [moduleId, mod] of Object.entries(MODULE_CONTENT)) {
         expect(ch.tests.mustFail.length, 'at least 3 plausible wrong answers').toBeGreaterThanOrEqual(3)
       })
       it(`${ch.id}: reference returns rows`, async () => {
-        const r = lastResultSet(await runIsolated(ch.grader.reference))
+        const r = lastResultSet(await runIsolated(`${ch.grader.setup ?? ''}\n${ch.grader.reference}`))
         expect(r?.rows.length ?? 0).toBeGreaterThan(0)
       })
       it(`${ch.id}: reference passes its own grader`, async () => {

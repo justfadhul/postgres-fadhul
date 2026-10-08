@@ -1,4 +1,5 @@
 import type { Challenge, SqlPattern } from '../../types'
+import { latestVisitTies, LONGER_REFERRAL_CHAIN, testVisits } from '../../datasets/testRows'
 
 // Module 1 challenges: the 30-query assignment and "latest visit, three ways".
 //
@@ -17,6 +18,9 @@ const LATERAL: SqlPattern = { pattern: '\\blateral\\b', message: 'Use a LATERAL 
 const NO_DISTINCT_ON: SqlPattern = { pattern: '\\bdistinct\\s+on\\b', message: 'Leave out DISTINCT ON here: this version practises another technique.' }
 const NO_WINDOW: SqlPattern = { pattern: '\\bover\\b', message: 'Leave out window functions here: this version practises another technique.' }
 const NO_LATERAL: SqlPattern = { pattern: '\\blateral\\b', message: 'Leave out LATERAL here: this version practises another technique.' }
+
+// Tied latest visits, and a patient with no visits, for all three versions of the latest-visit task.
+const LATEST_SETUP = `${latestVisitTies()}\n${testVisits([], { patientsWithoutVisits: 1 })}`
 
 const LATEST_PROMPT =
   'For every patient who has at least one visit, show their latest visit. Columns: patient id, visit time (visit_at), ' +
@@ -56,6 +60,8 @@ WHERE f.id = c.facility_id AND c.role = 'doctor' AND f.level = 'General Hospital
 FROM clinicians c
 WHERE c.role = 'doctor'
   AND c.facility_id IN (SELECT id FROM facilities WHERE level = 'General Hospital')`,
+        `select "c"."id", "c"."full_name", "f"."name" from "clinicians" as "c" inner join "facilities" as "f" on "c"."facility_id" = "f"."id" where "c"."role" = 'doctor' and "f"."level" = 'General Hospital'`,
+        `SELECT c.id, c.full_name, f.name FROM facilities f JOIN clinicians c ON c.facility_id = f.id AND c.role = 'doctor' WHERE f.level LIKE '%Hospital'`,
       ],
       mustFail: [
         `SELECT c.id, c.full_name, f.name FROM clinicians c JOIN facilities f ON f.id = c.id
@@ -64,6 +70,9 @@ WHERE c.role = 'doctor' AND f.level = 'General Hospital'`,
 WHERE f.level = 'General Hospital'`,
         `SELECT c.id, c.full_name, f.name FROM clinicians c JOIN facilities f ON f.id = c.facility_id
 WHERE c.role = 'doctor' AND f.level <> 'HC III'`,
+        `SELECT c.id, c.full_name, f.name FROM clinicians c LEFT JOIN facilities f ON f.id = c.facility_id AND f.level = 'General Hospital' WHERE c.role = 'doctor'`,
+        `SELECT c.id, c.full_name, f.name FROM clinicians c JOIN facilities f ON f.id = c.facility_id WHERE c.role IN ('doctor', 'clinical officer') AND f.level = 'General Hospital'`,
+        `SELECT c.full_name, c.id, f.name FROM clinicians c JOIN facilities f ON f.id = c.facility_id WHERE c.role = 'doctor' AND f.level = 'General Hospital'`,
       ],
     },
   },
@@ -93,11 +102,17 @@ LEFT JOIN facilities r ON r.id = f.referral_facility_id`,
       mustPass: [
         `SELECT f.name, f.level, (SELECT r.name FROM facilities r WHERE r.id = f.referral_facility_id) FROM facilities f`,
         `SELECT f.name, f.level, r.name FROM facilities r RIGHT JOIN facilities f ON f.referral_facility_id = r.id`,
+        `SELECT f.name, f.level, r.name FROM facilities f JOIN facilities r ON r.id = f.referral_facility_id
+UNION ALL SELECT name, level, NULL FROM facilities WHERE referral_facility_id IS NULL`,
+        `select f.name, f.level, r.name from facilities f left outer join facilities r on f.referral_facility_id = r.id`,
       ],
       mustFail: [
         `SELECT f.name, f.level, r.name FROM facilities f JOIN facilities r ON r.id = f.referral_facility_id`,
         `SELECT f.name, f.level, r.name FROM facilities f LEFT JOIN facilities r ON f.id = r.referral_facility_id`,
         `SELECT f.name, f.level, coalesce(r.name, 'None') FROM facilities f LEFT JOIN facilities r ON r.id = f.referral_facility_id`,
+        `SELECT f.name, f.level, r.name FROM facilities f FULL JOIN facilities r ON r.id = f.referral_facility_id`,
+        `SELECT f.name, f.level, coalesce(r.name, '') FROM facilities f LEFT JOIN facilities r ON r.id = f.referral_facility_id`,
+        `SELECT name, level, referral_facility_id FROM facilities`,
       ],
     },
   },
@@ -131,6 +146,12 @@ WHERE d.name = 'Artemether-lumefantrine'
   AND f.level = 'General Hospital'
   AND v.visit_at >= '2025-06-01' AND v.visit_at < '2025-07-01'`,
       ordered: false,
+      setup: testVisits([
+        { patient: 1, at: '2025-06-15 10:00', level: 'General Hospital', drug: 'Artemether-lumefantrine' }, // home facility is an HC III
+        { patient: 2, at: '2025-06-01 01:00', level: 'General Hospital', drug: 'Artemether-lumefantrine' }, // still 31 May in UTC
+        { patient: 3, at: '2025-07-01 01:00', level: 'General Hospital', drug: 'Artemether-lumefantrine' }, // still 30 June in UTC
+        { patient: 4, at: '2025-06-30 12:00', level: 'General Hospital', drug: 'Artemether-lumefantrine' }, // after midnight on 30 June
+      ]),
     },
     tests: {
       mustPass: [
@@ -148,6 +169,13 @@ WHERE rx.drug_id = (SELECT id FROM drugs WHERE name = 'Artemether-lumefantrine')
   AND v.facility_id IN (SELECT id FROM facilities WHERE level = 'General Hospital')
   AND date_trunc('month', v.visit_at) = '2025-06-01'
 GROUP BY p.id, p.full_name`,
+        `SELECT id, full_name FROM patients WHERE id IN (
+  SELECT v.patient_id FROM visits v JOIN facilities f ON f.id = v.facility_id JOIN prescriptions rx ON rx.visit_id = v.id
+  JOIN drugs d ON d.id = rx.drug_id
+  WHERE d.name = 'Artemether-lumefantrine' AND f.level = 'General Hospital' AND to_char(v.visit_at, 'YYYY-MM') = '2025-06')`,
+        `SELECT DISTINCT p.id, p.full_name FROM prescriptions rx JOIN drugs d ON d.id = rx.drug_id JOIN visits v ON v.id = rx.visit_id
+JOIN facilities f ON f.id = v.facility_id JOIN patients p ON p.id = v.patient_id
+WHERE d.name LIKE 'Artemether%' AND f.level = 'General Hospital' AND v.visit_at >= '2025-06-01' AND v.visit_at < '2025-07-01'`,
       ],
       mustFail: [
         `SELECT p.id, p.full_name
@@ -170,6 +198,18 @@ FROM patients p JOIN visits v ON v.patient_id = p.id JOIN facilities f ON f.id =
 JOIN prescriptions rx ON rx.visit_id = v.id JOIN drugs d ON d.id = rx.drug_id
 WHERE d.name = 'Artemether-lumefantrine' AND f.level <> 'HC III'
   AND v.visit_at >= '2025-06-01' AND v.visit_at < '2025-07-01'`,
+        `SELECT DISTINCT p.id, p.full_name FROM patients p JOIN visits v ON v.patient_id = p.id JOIN facilities f ON f.id = v.facility_id
+JOIN prescriptions rx ON rx.visit_id = v.id JOIN drugs d ON d.id = rx.drug_id
+WHERE d.name = 'Artemether-lumefantrine' AND f.level = 'General Hospital' AND extract(month FROM v.visit_at) = 6`,
+        `SELECT DISTINCT p.id, p.full_name FROM patients p JOIN visits v ON v.patient_id = p.id JOIN facilities f ON f.id = v.facility_id
+JOIN prescriptions rx ON rx.visit_id = v.id JOIN drugs d ON d.id = rx.drug_id
+WHERE d.name = 'Artemether-lumefantrine' AND f.level = 'General Hospital' AND v.visit_at BETWEEN '2025-06-01' AND '2025-06-30'`,
+        `SELECT DISTINCT p.id, p.full_name FROM patients p JOIN visits v ON v.patient_id = p.id JOIN facilities f ON f.id = v.facility_id
+JOIN prescriptions rx ON rx.visit_id = v.id JOIN drugs d ON d.id = rx.drug_id
+WHERE d.name = 'Artemether-lumefantrine' AND f.level = 'General Hospital' AND v.visit_at >= '2025-06-01 00:00+00' AND v.visit_at < '2025-07-01 00:00+00'`,
+        `SELECT DISTINCT p.id, p.full_name FROM patients p JOIN facilities f ON f.id = p.facility_id JOIN visits v ON v.patient_id = p.id
+JOIN prescriptions rx ON rx.visit_id = v.id JOIN drugs d ON d.id = rx.drug_id
+WHERE d.name = 'Artemether-lumefantrine' AND f.level = 'General Hospital' AND v.visit_at >= '2025-06-01' AND v.visit_at < '2025-07-01'`,
       ],
     },
   },
@@ -200,6 +240,11 @@ LEFT JOIN drugs d ON d.id = rx.drug_id
 WHERE v.visit_type = 'emergency'
   AND v.visit_at >= '2025-12-24' AND v.visit_at < '2025-12-27'`,
       ordered: false,
+      setup: testVisits([
+        { patient: 1, at: '2025-12-24 01:00', type: 'emergency', drug: 'Paracetamol 500 mg' }, // still 23 December in UTC
+        { patient: 2, at: '2025-12-27 01:00', type: 'emergency', drug: 'Paracetamol 500 mg' }, // still 26 December in UTC
+        { patient: 3, at: '2025-12-26 23:00', type: 'emergency' }, // late on 26 December, no prescription
+      ]),
     },
     tests: {
       mustPass: [
@@ -211,6 +256,13 @@ WHERE v.visit_type = 'emergency' AND v.visit_at::date BETWEEN '2025-12-24' AND '
 FROM visits v
 LEFT JOIN (prescriptions rx JOIN drugs d ON d.id = rx.drug_id) ON rx.visit_id = v.id
 WHERE v.visit_type = 'emergency' AND v.visit_at::date IN ('2025-12-24', '2025-12-25', '2025-12-26')`,
+        `SELECT v.id, d.name FROM visits v JOIN prescriptions rx ON rx.visit_id = v.id JOIN drugs d ON d.id = rx.drug_id
+WHERE v.visit_type = 'emergency' AND v.visit_at >= '2025-12-24' AND v.visit_at < '2025-12-27'
+UNION ALL
+SELECT v.id, NULL FROM visits v WHERE v.visit_type = 'emergency' AND v.visit_at >= '2025-12-24' AND v.visit_at < '2025-12-27'
+  AND NOT EXISTS (SELECT 1 FROM prescriptions rx WHERE rx.visit_id = v.id)`,
+        `SELECT v.id, d.name FROM drugs d RIGHT JOIN prescriptions rx ON d.id = rx.drug_id RIGHT JOIN visits v ON rx.visit_id = v.id
+WHERE v.visit_type = 'emergency' AND date_trunc('day', v.visit_at) IN ('2025-12-24', '2025-12-25', '2025-12-26')`,
       ],
       mustFail: [
         `SELECT v.id, d.name
@@ -224,6 +276,14 @@ FROM visits v
 LEFT JOIN prescriptions rx ON rx.visit_id = v.id AND v.visit_type = 'emergency'
 LEFT JOIN drugs d ON d.id = rx.drug_id
 WHERE v.visit_at >= '2025-12-24' AND v.visit_at < '2025-12-27'`,
+        `SELECT v.id, d.name FROM visits v LEFT JOIN prescriptions rx ON rx.visit_id = v.id LEFT JOIN drugs d ON d.id = rx.drug_id
+WHERE v.visit_type = 'emergency' AND v.visit_at >= '2025-12-24' AND v.visit_at <= '2025-12-26'`,
+        `SELECT v.id, d.name FROM visits v LEFT JOIN prescriptions rx ON rx.visit_id = v.id LEFT JOIN drugs d ON d.id = rx.drug_id
+WHERE v.visit_type = 'emergency' AND extract(month FROM v.visit_at) = 12 AND extract(day FROM v.visit_at) BETWEEN 24 AND 26`,
+        `SELECT v.id, string_agg(d.name, ', ') FROM visits v LEFT JOIN prescriptions rx ON rx.visit_id = v.id LEFT JOIN drugs d ON d.id = rx.drug_id
+WHERE v.visit_type = 'emergency' AND v.visit_at >= '2025-12-24' AND v.visit_at < '2025-12-27' GROUP BY v.id`,
+        `SELECT v.id, d.name FROM visits v LEFT JOIN prescriptions rx ON rx.visit_id = v.id LEFT JOIN drugs d ON d.id = rx.drug_id
+WHERE v.visit_type = 'emergency' AND (v.visit_at AT TIME ZONE 'UTC')::date BETWEEN '2025-12-24' AND '2025-12-26'`,
       ],
     },
   },
@@ -262,6 +322,11 @@ FROM facilities f`,
         `SELECT f.name, count(*) FILTER (WHERE v.visit_type = 'emergency' AND v.visit_at::date = date '2025-01-01')
 FROM facilities f LEFT JOIN visits v ON v.facility_id = f.id
 GROUP BY f.name`,
+        `SELECT f.name, coalesce(c.n, 0) FROM facilities f
+LEFT JOIN (SELECT facility_id, count(*) AS n FROM visits WHERE visit_type = 'emergency' AND visit_at >= '2025-01-01' AND visit_at < '2025-01-02' GROUP BY facility_id) c
+  ON c.facility_id = f.id`,
+        `SELECT f.name, sum(CASE WHEN v.visit_type = 'emergency' AND v.visit_at::date = '2025-01-01' THEN 1 ELSE 0 END)
+FROM facilities f LEFT JOIN visits v ON v.facility_id = f.id GROUP BY f.id, f.name`,
       ],
       mustFail: [
         `SELECT f.name, count(v.id)
@@ -276,6 +341,17 @@ GROUP BY f.name`,
 FROM facilities f LEFT JOIN visits v ON v.facility_id = f.id AND v.visit_type = 'emergency'
  AND v.visit_at >= '2025-01-01 00:00+00' AND v.visit_at < '2025-01-02 00:00+00'
 GROUP BY f.name`,
+        `SELECT f.name, count(v.id) FROM facilities f LEFT JOIN visits v ON v.facility_id = f.id
+WHERE (v.visit_type = 'emergency' AND v.visit_at >= '2025-01-01' AND v.visit_at < '2025-01-02') OR v.id IS NULL
+GROUP BY f.name`,
+        `SELECT f.name, count(v.id) FROM facilities f LEFT JOIN visits v ON v.facility_id = f.id AND v.visit_type = 'emergency'
+ AND extract(month FROM v.visit_at) = 1 AND extract(day FROM v.visit_at) = 1
+GROUP BY f.name`,
+        `SELECT f.name, count(v.id) FROM facilities f LEFT JOIN visits v ON v.facility_id = f.id AND v.visit_type = 'emergency'
+ AND (v.visit_at AT TIME ZONE 'UTC')::date = '2025-01-01'
+GROUP BY f.name`,
+        `SELECT f.name, count(v.id) FROM facilities f JOIN visits v ON v.facility_id = f.id AND v.visit_type = 'emergency'
+ AND v.visit_at >= '2025-01-01' AND v.visit_at < '2025-01-02' GROUP BY f.name`,
       ],
     },
   },
@@ -301,16 +377,27 @@ FROM visits v
 WHERE ${IN_2025}
 GROUP BY v.visit_type`,
       ordered: false,
+      setup: testVisits([
+        { patient: 1, at: '2025-01-01 01:00', type: 'antenatal' }, // still 2024 in UTC
+        { patient: 2, at: '2026-01-01 01:00', type: 'antenatal' }, // 2026 in Kampala, 2025 in UTC
+      ]),
     },
     tests: {
       mustPass: [
         `SELECT visit_type, count(*) FROM visits WHERE extract(year FROM visit_at) = 2025 GROUP BY 1`,
         `SELECT visit_type, count(id) FROM visits WHERE visit_at::date BETWEEN '2025-01-01' AND '2025-12-31' GROUP BY visit_type`,
+        `select visit_type, count(1) from visits where to_char(visit_at, 'YYYY') = '2025' group by visit_type`,
+        `SELECT visit_type, count(*) FROM visits WHERE date_trunc('year', visit_at) = '2025-01-01' GROUP BY visit_type`,
+        `SELECT visit_type, count(*) FROM visits WHERE extract(year FROM visit_at AT TIME ZONE 'Africa/Kampala') = 2025 GROUP BY visit_type`,
       ],
       mustFail: [
         `SELECT visit_type, count(*) FROM visits GROUP BY visit_type`,
         `SELECT visit_type, count(*) FROM visits WHERE visit_at BETWEEN '2025-01-01' AND '2025-12-31' GROUP BY visit_type`,
         `SELECT visit_type, count(*) FROM visits WHERE extract(year FROM visit_at AT TIME ZONE 'UTC') = 2025 GROUP BY visit_type`,
+        `SELECT visit_type, count(*) FROM visits WHERE visit_at > '2024-12-31' AND visit_at < '2026-01-01' GROUP BY visit_type`,
+        `SELECT visit_type, count(DISTINCT patient_id) FROM visits WHERE visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY visit_type`,
+        `SELECT visit_type, count(*) FROM visits WHERE visit_at >= '2025-01-01 00:00:00+00' AND visit_at < '2026-01-01 00:00:00+00' GROUP BY visit_type`,
+        `SELECT visit_type, count(*) FROM visits WHERE visit_at >= '2025-01-01' GROUP BY visit_type`,
       ],
     },
   },
@@ -337,6 +424,14 @@ WHERE v.visit_type = 'emergency' AND ${IN_2025}
 GROUP BY v.patient_id
 HAVING count(*) >= 4`,
       ordered: false,
+      setup: testVisits([
+        ...[1, 2, 3].flatMap((patient) =>
+          ['2025-03-10 10:00', '2025-06-10 10:00', '2025-09-10 10:00'].map((at) => ({ patient, at, type: 'emergency' as const })),
+        ),
+        { patient: 1, at: '2025-01-01 01:00', type: 'emergency' }, // fourth in 2025; still 2024 in UTC
+        { patient: 2, at: '2026-01-01 01:00', type: 'emergency' }, // 2026 in Kampala, 2025 in UTC
+        { patient: 3, at: '2025-12-31 12:00', type: 'emergency' }, // fourth in 2025, on the last day
+      ]),
     },
     tests: {
       mustPass: [
@@ -349,6 +444,10 @@ WHERE n > 3`,
 FROM visits WHERE extract(year FROM visit_at) = 2025
 GROUP BY patient_id
 HAVING count(*) FILTER (WHERE visit_type = 'emergency') >= 4`,
+        `WITH e AS (SELECT patient_id, count(id) AS n FROM visits v WHERE visit_type = 'emergency' AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY patient_id)
+SELECT patient_id, n FROM e WHERE n >= 4`,
+        `SELECT p.id, count(*) FROM patients p JOIN visits v ON v.patient_id = p.id
+WHERE v.visit_type = 'emergency' AND date_trunc('year', v.visit_at) = '2025-01-01' GROUP BY p.id HAVING count(*) > 3`,
       ],
       mustFail: [
         `SELECT patient_id, count(*) FROM visits
@@ -358,6 +457,12 @@ GROUP BY patient_id HAVING count(*) > 4`,
 WHERE visit_at >= '2025-01-01' AND visit_at < '2026-01-01'
 GROUP BY patient_id HAVING count(*) FILTER (WHERE visit_type = 'emergency') >= 4`,
         `SELECT patient_id, count(*) FROM visits WHERE visit_type = 'emergency'
+GROUP BY patient_id HAVING count(*) >= 4`,
+        `SELECT patient_id, count(*) FROM visits WHERE visit_type = 'emergency' AND visit_at >= '2025-01-01' AND visit_at < '2026-01-01'
+GROUP BY patient_id HAVING count(*) = 4`,
+        `SELECT patient_id, count(*) FROM visits WHERE visit_type = 'emergency' AND extract(year FROM visit_at AT TIME ZONE 'UTC') = 2025
+GROUP BY patient_id HAVING count(*) >= 4`,
+        `SELECT patient_id, count(*) FROM visits WHERE visit_type = 'emergency' AND visit_at BETWEEN '2025-01-01' AND '2025-12-31'
 GROUP BY patient_id HAVING count(*) >= 4`,
       ],
     },
@@ -396,6 +501,10 @@ GROUP BY d.name`,
        (SELECT count(*) FROM prescriptions rx WHERE rx.drug_id = d.id AND NOT rx.dispensed),
        (SELECT coalesce(sum(quantity), 0) FROM prescriptions rx WHERE rx.drug_id = d.id AND NOT rx.dispensed)
 FROM drugs d`,
+        `SELECT d.name, coalesce(x.n, 0), coalesce(x.q, 0) FROM drugs d
+LEFT JOIN (SELECT drug_id, count(*) AS n, sum(quantity) AS q FROM prescriptions WHERE NOT dispensed GROUP BY drug_id) x ON x.drug_id = d.id`,
+        `SELECT d.name, count(*) FILTER (WHERE rx.dispensed IS FALSE), sum(CASE WHEN NOT rx.dispensed THEN rx.quantity ELSE 0 END)
+FROM drugs d LEFT JOIN prescriptions rx ON rx.drug_id = d.id GROUP BY d.id, d.name`,
       ],
       mustFail: [
         `SELECT d.name, count(rx.id), sum(rx.quantity)
@@ -407,6 +516,14 @@ GROUP BY d.name`,
         `SELECT d.name, count(*), coalesce(sum(rx.quantity), 0)
 FROM drugs d LEFT JOIN prescriptions rx ON rx.drug_id = d.id AND NOT rx.dispensed
 GROUP BY d.name`,
+        `SELECT d.name, count(*) FILTER (WHERE NOT rx.dispensed), coalesce(sum(rx.quantity), 0)
+FROM drugs d LEFT JOIN prescriptions rx ON rx.drug_id = d.id GROUP BY d.name`,
+        `SELECT d.name, count(rx.id), coalesce(sum(rx.quantity), 0)
+FROM drugs d LEFT JOIN prescriptions rx ON rx.drug_id = d.id AND rx.dispensed GROUP BY d.name`,
+        `SELECT d.name, count(rx.id), sum(CASE WHEN NOT rx.dispensed THEN rx.quantity END)
+FROM drugs d LEFT JOIN prescriptions rx ON rx.drug_id = d.id AND NOT rx.dispensed GROUP BY d.name`,
+        `SELECT d.name, count(rx.id), coalesce(sum(rx.quantity), 0)
+FROM drugs d LEFT JOIN prescriptions rx ON rx.drug_id = d.id WHERE NOT rx.dispensed OR rx.id IS NULL GROUP BY d.name`,
       ],
     },
   },
@@ -435,6 +552,11 @@ LEFT JOIN prescriptions rx ON rx.visit_id = v.id
 WHERE ${IN_2025}
 GROUP BY f.level`,
       ordered: false,
+      setup: testVisits([
+        { patient: 1, at: '2025-05-10 10:00', level: 'General Hospital', drug: 'Paracetamol 500 mg' }, // home facility is an HC III
+        { patient: 2, at: '2025-01-01 01:00', level: 'HC IV', drug: 'Paracetamol 500 mg' }, // still 2024 in UTC
+        { patient: 3, at: '2026-01-01 01:00', level: 'HC IV', drug: 'Paracetamol 500 mg' }, // 2026 in Kampala, 2025 in UTC
+      ]),
     },
     tests: {
       mustPass: [
@@ -451,6 +573,12 @@ b AS (
   SELECT f.level, count(*) AS rx FROM prescriptions rx JOIN visits v ON v.id = rx.visit_id JOIN facilities f ON f.id = v.facility_id
   WHERE extract(year FROM v.visit_at) = 2025 GROUP BY f.level)
 SELECT a.level, a.visits, coalesce(b.rx, 0) FROM a LEFT JOIN b USING (level)`,
+        `SELECT f.level, count(DISTINCT v.id), count(DISTINCT rx.id)
+FROM visits v JOIN facilities f ON f.id = v.facility_id LEFT JOIN prescriptions rx ON rx.visit_id = v.id
+WHERE date_trunc('year', v.visit_at) = '2025-01-01' GROUP BY 1`,
+        `SELECT f.level, count(DISTINCT v.id), count(*) FILTER (WHERE rx.id IS NOT NULL)
+FROM visits v JOIN facilities f ON f.id = v.facility_id LEFT JOIN prescriptions rx ON rx.visit_id = v.id
+WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY f.level`,
       ],
       mustFail: [
         `SELECT f.level, count(*), count(rx.id)
@@ -465,6 +593,18 @@ GROUP BY f.level`,
 FROM facilities f JOIN visits v ON v.facility_id = f.id LEFT JOIN prescriptions rx ON rx.visit_id = v.id
 WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01'
 GROUP BY f.level`,
+        `SELECT f.level, count(DISTINCT v.id), count(DISTINCT rx.drug_id)
+FROM facilities f JOIN visits v ON v.facility_id = f.id LEFT JOIN prescriptions rx ON rx.visit_id = v.id
+WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY f.level`,
+        `SELECT f.level, count(DISTINCT v.patient_id), count(rx.id)
+FROM facilities f JOIN visits v ON v.facility_id = f.id LEFT JOIN prescriptions rx ON rx.visit_id = v.id
+WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY f.level`,
+        `SELECT f.level, count(DISTINCT v.id), count(rx.id)
+FROM facilities f JOIN visits v ON v.facility_id = f.id LEFT JOIN prescriptions rx ON rx.visit_id = v.id
+WHERE extract(year FROM v.visit_at AT TIME ZONE 'UTC') = 2025 GROUP BY f.level`,
+        `SELECT f.level, count(DISTINCT v.id), count(rx.id)
+FROM visits v JOIN patients p ON p.id = v.patient_id JOIN facilities f ON f.id = p.facility_id LEFT JOIN prescriptions rx ON rx.visit_id = v.id
+WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY f.level`,
       ],
     },
   },
@@ -491,6 +631,15 @@ FROM facilities f
 JOIN visits v ON v.facility_id = f.id
 GROUP BY f.district`,
       ordered: false,
+      setup: `-- a second facility in the first facility's district, with 10 visits, 9 of them emergencies
+INSERT INTO facilities (id, name, district, level, referral_facility_id)
+SELECT max(id) + 1, 'Test HC III (second in its district)', (SELECT district FROM facilities ORDER BY id LIMIT 1), 'HC III', NULL
+FROM facilities;
+INSERT INTO visits (id, patient_id, facility_id, clinician_id, visit_at, visit_type, diagnosis_code)
+SELECT (SELECT max(id) FROM visits) + g, (SELECT min(id) FROM patients), (SELECT max(id) FROM facilities),
+       (SELECT min(id) FROM clinicians), timestamptz '2025-05-01 10:00+03' + g * interval '1 day',
+       CASE WHEN g <= 9 THEN 'emergency' ELSE 'outpatient' END, NULL
+FROM generate_series(1, 10) AS g;`,
     },
     tests: {
       mustPass: [
@@ -499,6 +648,10 @@ FROM visits v JOIN facilities f ON f.id = v.facility_id GROUP BY 1`,
         `SELECT f.district,
        round(sum(CASE WHEN v.visit_type = 'emergency' THEN 1 ELSE 0 END) * 100.0 / count(v.id), 1)
 FROM facilities f JOIN visits v ON v.facility_id = f.id GROUP BY f.district`,
+        `SELECT f.district, round(avg(CASE WHEN v.visit_type = 'emergency' THEN 100.0 ELSE 0 END), 1)
+FROM visits v JOIN facilities f ON f.id = v.facility_id GROUP BY f.district`,
+        `SELECT f.district, round((100 * count(*) FILTER (WHERE v.visit_type = 'emergency')::float / count(*))::numeric, 1)
+FROM visits v JOIN facilities f ON f.id = v.facility_id GROUP BY f.district`,
       ],
       mustFail: [
         `SELECT f.district, 100 * count(*) FILTER (WHERE v.visit_type = 'emergency') / count(*)
@@ -507,6 +660,16 @@ FROM facilities f JOIN visits v ON v.facility_id = f.id GROUP BY f.district`,
 FROM facilities f JOIN visits v ON v.facility_id = f.id GROUP BY f.district`,
         `SELECT f.district, round(100.0 * count(*) FILTER (WHERE v.visit_type = 'emergency') / (SELECT count(*) FROM visits), 1)
 FROM facilities f JOIN visits v ON v.facility_id = f.id GROUP BY f.district`,
+        `SELECT f.district, trunc(100.0 * count(*) FILTER (WHERE v.visit_type = 'emergency') / count(*), 1)
+FROM visits v JOIN facilities f ON f.id = v.facility_id GROUP BY f.district`,
+        `SELECT f.district, round(100.0 * count(*) FILTER (WHERE v.visit_type = 'emergency') / (SELECT count(*) FROM visits WHERE visit_type = 'emergency'), 1)
+FROM visits v JOIN facilities f ON f.id = v.facility_id GROUP BY f.district`,
+        `SELECT f.district, round(100.0 * count(*) FILTER (WHERE v.visit_type = 'emergency') / count(*), 1)
+FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY f.district`,
+        `SELECT f.district, round(100.0 * count(*) FILTER (WHERE v.visit_type = 'emergency') / count(*), 1)
+FROM visits v JOIN facilities f ON f.id = v.facility_id GROUP BY f.id, f.district`,
+        `SELECT f.district, to_char(100.0 * count(*) FILTER (WHERE v.visit_type = 'emergency') / count(*), 'FM990.0')
+FROM visits v JOIN facilities f ON f.id = v.facility_id GROUP BY f.district`,
       ],
     },
   },
@@ -548,6 +711,12 @@ GROUP BY v.diagnosis_code`,
 FROM diagnoses d JOIN visits v ON v.diagnosis_code = d.code JOIN patients p ON v.patient_id = p.id
 WHERE extract(year FROM v.visit_at) = 2025
 GROUP BY 1, 2`,
+        `SELECT d.code, d.label, count(CASE WHEN p.sex = 'F' THEN 1 END), count(CASE WHEN p.sex = 'M' THEN 1 END)
+FROM visits v JOIN patients p ON p.id = v.patient_id LEFT JOIN diagnoses d ON d.code = v.diagnosis_code
+WHERE v.diagnosis_code IS NOT NULL AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY d.code, d.label`,
+        `SELECT v.diagnosis_code, max(d.label), count(*) FILTER (WHERE p.sex = 'F'), count(*) FILTER (WHERE p.sex = 'M')
+FROM visits v JOIN patients p ON p.id = v.patient_id JOIN diagnoses d ON d.code = v.diagnosis_code
+WHERE to_char(v.visit_at, 'YYYY') = '2025' GROUP BY v.diagnosis_code`,
       ],
       mustFail: [
         `SELECT d.code, d.label, count(DISTINCT p.id) FILTER (WHERE p.sex = 'F'), count(DISTINCT p.id) FILTER (WHERE p.sex = 'M')
@@ -561,6 +730,15 @@ GROUP BY d.code, d.label`,
         `SELECT d.code, d.label, count(*) FILTER (WHERE p.sex = 'F'), count(*) FILTER (WHERE p.sex = 'M')
 FROM visits v JOIN patients p ON p.id = v.patient_id JOIN diagnoses d ON d.code = v.diagnosis_code
 GROUP BY d.code, d.label`,
+        `SELECT d.code, d.label, count(*) FILTER (WHERE p.sex = 'M'), count(*) FILTER (WHERE p.sex = 'F')
+FROM visits v JOIN patients p ON p.id = v.patient_id JOIN diagnoses d ON d.code = v.diagnosis_code
+WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY d.code, d.label`,
+        `SELECT d.code, d.label, count(*) FILTER (WHERE p.sex = 'F'), count(*) FILTER (WHERE p.sex = 'M')
+FROM visits v JOIN patients p ON p.id = v.patient_id JOIN diagnoses d ON d.code = v.diagnosis_code
+WHERE extract(year FROM v.visit_at AT TIME ZONE 'UTC') = 2025 GROUP BY d.code, d.label`,
+        `SELECT d.code, d.label, count(*) FILTER (WHERE p.sex = 'F'), count(*)
+FROM visits v JOIN patients p ON p.id = v.patient_id JOIN diagnoses d ON d.code = v.diagnosis_code
+WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY d.code, d.label`,
       ],
     },
   },
@@ -587,6 +765,13 @@ WHERE NOT EXISTS (
   SELECT 1 FROM visits v
   WHERE v.patient_id = p.id AND ${IN_2025})`,
       ordered: false,
+      setup: testVisits(
+        [
+          { patient: 1, at: '2025-01-01 01:00' }, // a 2025 visit; still 2024 in UTC
+          { patient: 2, at: '2026-01-01 01:00' }, // no 2025 visit; 2025 in UTC
+        ],
+        { patientsWithoutVisits: 1 },
+      ),
     },
     tests: {
       mustPass: [
@@ -598,6 +783,9 @@ WHERE id NOT IN (SELECT patient_id FROM visits WHERE extract(year FROM visit_at)
         `SELECT id, full_name FROM patients
 EXCEPT
 SELECT p.id, p.full_name FROM patients p JOIN visits v ON v.patient_id = p.id WHERE v.visit_at::date BETWEEN '2025-01-01' AND '2025-12-31'`,
+        `SELECT p.id, p.full_name FROM patients p LEFT JOIN visits v ON v.patient_id = p.id
+GROUP BY p.id, p.full_name HAVING count(*) FILTER (WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01') = 0`,
+        `SELECT id, full_name FROM patients p WHERE NOT EXISTS (SELECT FROM visits v WHERE v.patient_id = p.id AND date_trunc('year', v.visit_at) = '2025-01-01')`,
       ],
       mustFail: [
         `SELECT p.id, p.full_name FROM patients p LEFT JOIN visits v ON v.patient_id = p.id
@@ -606,6 +794,13 @@ WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' AND v.id IS NULL`
 WHERE NOT (v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01')`,
         `SELECT id, full_name FROM patients
 WHERE id NOT IN (SELECT patient_id FROM visits WHERE visit_at < '2025-01-01')`,
+        `SELECT p.id, p.full_name FROM patients p WHERE NOT EXISTS (SELECT 1 FROM visits v WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01')`,
+        `SELECT p.id, p.full_name FROM patients p WHERE NOT EXISTS (SELECT 1 FROM visits v WHERE v.patient_id = p.id
+  AND extract(year FROM v.visit_at AT TIME ZONE 'UTC') = 2025)`,
+        `SELECT p.id, p.full_name FROM patients p JOIN visits v ON v.patient_id = p.id
+GROUP BY p.id, p.full_name HAVING max(v.visit_at) < '2025-01-01 00:00+00'`,
+        `SELECT p.id, p.full_name FROM patients p JOIN visits v ON v.patient_id = p.id
+GROUP BY p.id, p.full_name HAVING count(*) FILTER (WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01') = 0`,
       ],
     },
   },
@@ -645,6 +840,13 @@ WHERE visit_type = 'antenatal' AND visit_at::date BETWEEN '2025-12-01' AND '2025
 LEFT JOIN (prescriptions rx JOIN drugs d ON d.id = rx.drug_id AND d.name = 'Ferrous sulphate + folic acid')
   ON rx.visit_id = v.id
 WHERE v.visit_type = 'antenatal' AND v.visit_at >= '2025-12-01' AND v.visit_at < '2025-12-08' AND rx.id IS NULL`,
+        `SELECT id, patient_id FROM visits WHERE visit_type = 'antenatal' AND visit_at >= '2025-12-01' AND visit_at < '2025-12-08'
+EXCEPT
+SELECT v.id, v.patient_id FROM visits v JOIN prescriptions rx ON rx.visit_id = v.id JOIN drugs d ON d.id = rx.drug_id
+WHERE d.name = 'Ferrous sulphate + folic acid'`,
+        `SELECT v.id, v.patient_id FROM visits v LEFT JOIN prescriptions rx ON rx.visit_id = v.id LEFT JOIN drugs d ON d.id = rx.drug_id
+WHERE v.visit_type = 'antenatal' AND v.visit_at::date BETWEEN '2025-12-01' AND '2025-12-07'
+GROUP BY v.id, v.patient_id HAVING NOT coalesce(bool_or(d.name = 'Ferrous sulphate + folic acid'), false)`,
       ],
       mustFail: [
         `SELECT DISTINCT v.id, v.patient_id FROM visits v
@@ -658,6 +860,18 @@ WHERE v.visit_type = 'antenatal' AND v.visit_at BETWEEN '2025-12-01' AND '2025-1
         `SELECT v.id, v.patient_id FROM visits v
 WHERE v.visit_type = 'antenatal' AND v.visit_at >= '2025-12-01' AND v.visit_at < '2025-12-08'
   AND NOT EXISTS (SELECT 1 FROM prescriptions rx WHERE rx.visit_id = v.id)`,
+        `SELECT DISTINCT v.id, v.patient_id FROM visits v LEFT JOIN prescriptions rx ON rx.visit_id = v.id LEFT JOIN drugs d ON d.id = rx.drug_id
+WHERE v.visit_type = 'antenatal' AND v.visit_at >= '2025-12-01' AND v.visit_at < '2025-12-08'
+  AND (d.name <> 'Ferrous sulphate + folic acid' OR d.name IS NULL)`,
+        `SELECT v.id, v.patient_id FROM visits v
+WHERE v.visit_type = 'antenatal' AND v.visit_at >= '2025-12-01' AND v.visit_at <= '2025-12-07'
+  AND NOT EXISTS (SELECT 1 FROM prescriptions rx JOIN drugs d ON d.id = rx.drug_id WHERE rx.visit_id = v.id AND d.name = 'Ferrous sulphate + folic acid')`,
+        `SELECT v.id, v.patient_id FROM visits v
+WHERE v.visit_type = 'antenatal' AND (v.visit_at AT TIME ZONE 'UTC')::date BETWEEN '2025-12-01' AND '2025-12-07'
+  AND NOT EXISTS (SELECT 1 FROM prescriptions rx JOIN drugs d ON d.id = rx.drug_id WHERE rx.visit_id = v.id AND d.name = 'Ferrous sulphate + folic acid')`,
+        `SELECT v.id, v.patient_id FROM visits v
+WHERE v.visit_type = 'antenatal' AND v.visit_at >= '2025-12-01' AND v.visit_at < '2025-12-08'
+  AND NOT EXISTS (SELECT 1 FROM prescriptions rx JOIN drugs d ON d.id = rx.drug_id WHERE d.name = 'Ferrous sulphate + folic acid')`,
       ],
     },
   },
@@ -701,6 +915,12 @@ WHERE e.visit_type = 'emergency' AND e.visit_at::date BETWEEN '2025-11-01' AND '
   FROM visits v)
 SELECT id, patient_id FROM nxt
 WHERE visit_type = 'emergency' AND date_trunc('month', visit_at) = '2025-11-01' AND next_at <= visit_at + interval '7 days'`,
+        `SELECT id, patient_id FROM (
+  SELECT id, patient_id, visit_type, visit_at, lead(visit_at) OVER (PARTITION BY patient_id ORDER BY visit_at, id) AS nxt FROM visits) x
+WHERE visit_type = 'emergency' AND visit_at >= '2025-11-01' AND visit_at < '2025-12-01' AND nxt <= visit_at + interval '7 days'`,
+        `SELECT e.id, e.patient_id FROM visits e WHERE e.visit_type = 'emergency' AND to_char(e.visit_at, 'YYYY-MM') = '2025-11'
+  AND e.id IN (SELECT e2.id FROM visits e2 JOIN visits r ON r.patient_id = e2.patient_id
+               WHERE r.visit_at > e2.visit_at AND r.visit_at <= e2.visit_at + interval '168 hours')`,
       ],
       mustFail: [
         `SELECT e.id, e.patient_id FROM visits e
@@ -716,6 +936,18 @@ WHERE e.visit_type = 'emergency' AND e.visit_at >= '2025-11-01' AND e.visit_at <
 WHERE e.visit_type = 'emergency' AND e.visit_at >= '2025-11-01' AND e.visit_at < '2025-12-01'
   AND EXISTS (SELECT 1 FROM visits r WHERE r.patient_id = e.patient_id AND r.visit_type = 'follow-up'
               AND r.visit_at > e.visit_at AND r.visit_at <= e.visit_at + interval '7 days')`,
+        `SELECT DISTINCT e.id, e.patient_id FROM visits e JOIN visits r ON r.patient_id = e.patient_id
+  AND r.visit_at > e.visit_at AND r.visit_at::date <= e.visit_at::date + 7
+WHERE e.visit_type = 'emergency' AND e.visit_at >= '2025-11-01' AND e.visit_at < '2025-12-01'`,
+        `SELECT e.id, e.patient_id FROM visits e JOIN visits r ON r.patient_id = e.patient_id
+  AND r.visit_at > e.visit_at AND r.visit_at <= e.visit_at + interval '7 days'
+WHERE e.visit_type = 'emergency' AND e.visit_at >= '2025-11-01' AND e.visit_at < '2025-12-01'`,
+        `SELECT e.id, e.patient_id FROM visits e
+WHERE e.visit_type = 'emergency' AND e.visit_at >= '2025-11-01' AND e.visit_at < '2025-12-01'
+  AND EXISTS (SELECT 1 FROM visits r WHERE r.patient_id = e.patient_id AND r.id > e.id AND r.visit_at <= e.visit_at + interval '7 days')`,
+        `SELECT e.id, e.patient_id FROM visits e
+WHERE e.visit_type = 'emergency' AND e.visit_at >= '2025-11-01' AND e.visit_at < '2025-12-01'
+  AND EXISTS (SELECT 1 FROM visits r WHERE r.patient_id = e.patient_id AND r.visit_at < e.visit_at AND r.visit_at >= e.visit_at - interval '7 days')`,
       ],
     },
   },
@@ -752,6 +984,18 @@ JOIN facilities f ON f.id = p.facility_id
 JOIN drugs d ON d.id = p.drug_id
 WHERE s.quantity_on_hand < p.qty`,
       ordered: false,
+      setup: testVisits([
+        { patient: 1, at: '2025-11-01 01:00', drug: 'Paracetamol 500 mg', quantity: 100000 }, // still October in UTC
+        { patient: 2, at: '2025-12-01 01:00', drug: 'Paracetamol 500 mg', quantity: 200000 }, // still November in UTC
+      ]) +
+        `
+-- one facility and drug whose stock exactly equals what November's prescriptions add up to
+UPDATE stock s SET quantity_on_hand = p.qty
+FROM (SELECT v.facility_id, rx.drug_id, sum(rx.quantity) AS qty
+      FROM visits v JOIN prescriptions rx ON rx.visit_id = v.id
+      WHERE v.visit_at >= '2025-11-01' AND v.visit_at < '2025-12-01'
+      GROUP BY 1, 2 ORDER BY 1 DESC, 2 DESC LIMIT 1) p
+WHERE s.facility_id = p.facility_id AND s.drug_id = p.drug_id;`,
     },
     tests: {
       mustPass: [
@@ -773,6 +1017,16 @@ CROSS JOIN LATERAL (
   WHERE v.facility_id = s.facility_id AND rx.drug_id = s.drug_id
     AND date_trunc('month', v.visit_at) = '2025-11-01') t
 WHERE s.quantity_on_hand < t.qty`,
+        `SELECT f.name, d.name, p.qty, s.quantity_on_hand
+FROM (SELECT v.facility_id, rx.drug_id, sum(rx.quantity) AS qty FROM prescriptions rx JOIN visits v ON v.id = rx.visit_id
+      WHERE to_char(v.visit_at, 'YYYY-MM') = '2025-11' GROUP BY 1, 2) p
+JOIN stock s USING (facility_id, drug_id) JOIN facilities f ON f.id = facility_id JOIN drugs d ON d.id = drug_id
+WHERE s.quantity_on_hand < p.qty`,
+        `SELECT f.name, d.name, sum(rx.quantity), max(s.quantity_on_hand)
+FROM visits v JOIN prescriptions rx ON rx.visit_id = v.id JOIN stock s ON (s.facility_id, s.drug_id) = (v.facility_id, rx.drug_id)
+JOIN facilities f ON f.id = v.facility_id JOIN drugs d ON d.id = rx.drug_id
+WHERE v.visit_at >= '2025-11-01' AND v.visit_at < '2025-12-01'
+GROUP BY f.id, f.name, d.id, d.name HAVING max(s.quantity_on_hand) < sum(rx.quantity)`,
       ],
       mustFail: [
         `SELECT f.name, d.name, sum(rx.quantity), s.quantity_on_hand
@@ -798,6 +1052,26 @@ WHERE s.quantity_on_hand < p.qty`,
 SELECT f.name, d.name, p.qty, s.quantity_on_hand FROM prescribed p
 JOIN stock s USING (facility_id, drug_id) JOIN facilities f ON f.id = p.facility_id JOIN drugs d ON d.id = p.drug_id
 WHERE s.quantity_on_hand < p.qty`,
+        `SELECT f.name, d.name, sum(rx.quantity), sum(s.quantity_on_hand)
+FROM visits v JOIN prescriptions rx ON rx.visit_id = v.id JOIN stock s ON s.facility_id = v.facility_id AND s.drug_id = rx.drug_id
+JOIN facilities f ON f.id = v.facility_id JOIN drugs d ON d.id = rx.drug_id
+WHERE v.visit_at >= '2025-11-01' AND v.visit_at < '2025-12-01'
+GROUP BY f.name, d.name HAVING sum(s.quantity_on_hand) < sum(rx.quantity)`,
+        `SELECT f.name, d.name, count(*), s.quantity_on_hand
+FROM visits v JOIN prescriptions rx ON rx.visit_id = v.id JOIN stock s ON s.facility_id = v.facility_id AND s.drug_id = rx.drug_id
+JOIN facilities f ON f.id = v.facility_id JOIN drugs d ON d.id = rx.drug_id
+WHERE v.visit_at >= '2025-11-01' AND v.visit_at < '2025-12-01'
+GROUP BY f.name, d.name, s.quantity_on_hand HAVING s.quantity_on_hand < count(*)`,
+        `SELECT f.name, d.name, sum(rx.quantity), s.quantity_on_hand
+FROM visits v JOIN prescriptions rx ON rx.visit_id = v.id JOIN stock s ON s.facility_id = v.facility_id AND s.drug_id = rx.drug_id
+JOIN facilities f ON f.id = v.facility_id JOIN drugs d ON d.id = rx.drug_id
+WHERE (v.visit_at AT TIME ZONE 'UTC') >= '2025-11-01' AND (v.visit_at AT TIME ZONE 'UTC') < '2025-12-01'
+GROUP BY f.name, d.name, s.quantity_on_hand HAVING s.quantity_on_hand < sum(rx.quantity)`,
+        `SELECT f.name, d.name, sum(rx.quantity), s.quantity_on_hand
+FROM visits v JOIN prescriptions rx ON rx.visit_id = v.id JOIN stock s ON s.facility_id = v.facility_id AND s.drug_id = rx.drug_id
+JOIN facilities f ON f.id = v.facility_id JOIN drugs d ON d.id = rx.drug_id
+WHERE v.visit_at >= '2025-11-01' AND v.visit_at < '2025-12-01'
+GROUP BY f.name, d.name, s.quantity_on_hand HAVING s.quantity_on_hand <= sum(rx.quantity)`,
       ],
     },
   },
@@ -842,6 +1116,11 @@ FROM facilities f
 JOIN (SELECT facility_id, count(*) AS visits, count(DISTINCT patient_id) AS patients
       FROM visits WHERE visit_at::date BETWEEN '2025-01-01' AND '2025-12-31' GROUP BY facility_id) x
   ON x.facility_id = f.id`,
+        `SELECT f.name, count(*), round(avg(n), 2) FROM facilities f
+JOIN (SELECT facility_id, patient_id, count(*) AS n FROM visits v WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY 1, 2) pp ON pp.facility_id = f.id
+GROUP BY f.name`,
+        `SELECT f.name, count(DISTINCT v.patient_id), round((count(*)::float / count(DISTINCT v.patient_id))::numeric, 2)
+FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE date_trunc('year', v.visit_at) = '2025-01-01' GROUP BY f.name`,
       ],
       mustFail: [
         `SELECT f.name, (SELECT count(*) FROM patients p WHERE p.facility_id = f.id),
@@ -856,6 +1135,14 @@ GROUP BY f.name`,
 FROM visits v JOIN facilities f ON f.id = v.facility_id
 WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01'
 GROUP BY f.name`,
+        `SELECT f.name, count(DISTINCT v.patient_id), trunc(count(*)::numeric / count(DISTINCT v.patient_id), 2)
+FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY f.name`,
+        `SELECT f.name, count(DISTINCT v.patient_id), round(count(*)::numeric / count(DISTINCT v.patient_id), 2)
+FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE extract(year FROM v.visit_at AT TIME ZONE 'UTC') = 2025 GROUP BY f.name`,
+        `SELECT f.name, count(DISTINCT v.patient_id), round(count(*)::numeric / count(DISTINCT v.patient_id), 2)
+FROM visits v JOIN facilities f ON f.id = v.facility_id GROUP BY f.name`,
+        `SELECT f.name, count(DISTINCT v.patient_id), round(avg(count(*)) OVER (PARTITION BY f.name), 2)
+FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY f.name`,
       ],
     },
   },
@@ -894,6 +1181,7 @@ JOIN facilities s ON s.id = c.start_id
 JOIN facilities t ON t.id = c.current_id
 WHERE c.next_id IS NULL`,
       ordered: false,
+      setup: LONGER_REFERRAL_CHAIN,
       requires: [{ pattern: '\\bwith\\s+recursive\\b', message: 'Use WITH RECURSIVE: a referral chain can be any length.' }],
     },
     tests: {
@@ -914,6 +1202,20 @@ SELECT f.name, top.name, tree.depth FROM tree JOIN facilities f ON f.id = tree.i
 SELECT DISTINCT ON (up.start_id) s.name, t.name, up.steps
 FROM up JOIN facilities s ON s.id = up.start_id JOIN facilities t ON t.id = up.fid
 ORDER BY up.start_id, up.steps DESC`,
+        `with recursive "chain"(start_id, cur, nxt, steps) as (
+  select id, id, referral_facility_id, 0 from facilities
+  union all
+  select c.start_id, f.id, f.referral_facility_id, c.steps + 1 from "chain" c join facilities f on f.id = c.nxt
+)
+select s.name, t.name, c.steps from "chain" c join facilities s on s.id = c.start_id join facilities t on t.id = c.cur where c.nxt is null`,
+        `WITH
+RECURSIVE up AS (
+  SELECT id AS start_id, id AS cur, 0 AS steps FROM facilities
+  UNION ALL
+  SELECT up.start_id, f.referral_facility_id, up.steps + 1 FROM up JOIN facilities f ON f.id = up.cur WHERE f.referral_facility_id IS NOT NULL
+)
+SELECT s.name, t.name, x.steps FROM (SELECT start_id, max(steps) AS steps FROM up GROUP BY start_id) x
+JOIN up USING (start_id, steps) JOIN facilities s ON s.id = x.start_id JOIN facilities t ON t.id = up.cur`,
       ],
       mustFail: [
         `WITH RECURSIVE chain AS (
@@ -942,6 +1244,30 @@ WHERE c.next_id IS NULL`,
 FROM facilities f
 LEFT JOIN facilities r1 ON r1.id = f.referral_facility_id
 LEFT JOIN facilities r2 ON r2.id = r1.referral_facility_id`,
+        `WITH RECURSIVE tree AS (
+  SELECT id, id AS top_id, 0 AS depth FROM facilities WHERE referral_facility_id IS NULL
+  UNION ALL
+  SELECT f.id, t.top_id, t.depth + 1 FROM facilities f JOIN tree t ON f.referral_facility_id = t.id
+)
+SELECT top.name, f.name, tree.depth FROM tree JOIN facilities f ON f.id = tree.id JOIN facilities top ON top.id = tree.top_id`,
+        `WITH RECURSIVE chain AS (
+  SELECT id AS start_id, id AS current_id, referral_facility_id AS next_id, 0 AS steps FROM facilities
+  UNION ALL
+  SELECT c.start_id, f.id, f.referral_facility_id, c.steps + 1 FROM chain c JOIN facilities f ON f.id = c.next_id
+)
+SELECT s.name, t.name, c.steps FROM chain c JOIN facilities s ON s.id = c.start_id JOIN facilities t ON t.id = c.current_id
+WHERE c.steps = 1 OR (c.steps = 0 AND c.next_id IS NULL)`,
+        `-- WITH RECURSIVE
+SELECT f.name, coalesce(r2.name, r1.name, f.name),
+       CASE WHEN r2.id IS NOT NULL THEN 2 WHEN r1.id IS NOT NULL THEN 1 ELSE 0 END
+FROM facilities f LEFT JOIN facilities r1 ON r1.id = f.referral_facility_id LEFT JOIN facilities r2 ON r2.id = r1.referral_facility_id`,
+        `SELECT f.name, coalesce(r2.name, r1.name, f.name) AS "with recursive",
+       CASE WHEN r2.id IS NOT NULL THEN 2 WHEN r1.id IS NOT NULL THEN 1 ELSE 0 END
+FROM facilities f LEFT JOIN facilities r1 ON r1.id = f.referral_facility_id LEFT JOIN facilities r2 ON r2.id = r1.referral_facility_id`,
+        `WITH RECURSIVE unused AS (SELECT 1)
+SELECT f.name, coalesce(r2.name, r1.name, f.name),
+       CASE WHEN r2.id IS NOT NULL THEN 2 WHEN r1.id IS NOT NULL THEN 1 ELSE 0 END
+FROM facilities f LEFT JOIN facilities r1 ON r1.id = f.referral_facility_id LEFT JOIN facilities r2 ON r2.id = r1.referral_facility_id`,
       ],
     },
   },
@@ -978,6 +1304,11 @@ LEFT JOIN visits v
 GROUP BY d.day
 ORDER BY d.day`,
       ordered: true,
+      setup: testVisits([
+        { patient: 1, at: '2025-12-01 01:00', level: 'General Hospital', type: 'emergency', diagnosis: 'B54' }, // 30 November in UTC
+        { patient: 2, at: '2025-12-02 01:00', level: 'General Hospital', type: 'emergency', diagnosis: 'B54' }, // 1 December in UTC
+        { patient: 3, at: '2026-01-01 01:00', level: 'General Hospital', type: 'emergency', diagnosis: 'B54' }, // 31 December in UTC
+      ]),
     },
     tests: {
       mustPass: [
@@ -995,6 +1326,16 @@ SELECT g::date, coalesce(c.n, 0)
 FROM generate_series(timestamp '2025-12-01', timestamp '2025-12-31', interval '1 day') g
 LEFT JOIN counts c ON c.day = g::date
 ORDER BY g`,
+        `select d::date, count(v.id)
+from generate_series('2025-12-01'::timestamptz, '2025-12-31', '1 day') d
+left join (visits v join facilities f on f.id = v.facility_id and f.level = 'General Hospital')
+  on date_trunc('day', v.visit_at) = d and v.visit_type = 'emergency' and v.diagnosis_code = 'B54'
+group by d order by d`,
+        `WITH RECURSIVE days(day) AS (VALUES (date '2025-12-01') UNION ALL SELECT day + 1 FROM days WHERE day < '2025-12-31')
+SELECT day, count(*) FILTER (WHERE v.id IS NOT NULL) FROM days
+LEFT JOIN visits v ON v.visit_at >= day AND v.visit_at < day + 1 AND v.visit_type = 'emergency' AND v.diagnosis_code = 'B54'
+  AND EXISTS (SELECT 1 FROM facilities f WHERE f.id = v.facility_id AND f.level = 'General Hospital')
+GROUP BY day ORDER BY day`,
       ],
       mustFail: [
         `SELECT v.visit_at::date, count(*) FROM visits v JOIN facilities f ON f.id = v.facility_id
@@ -1014,6 +1355,25 @@ GROUP BY d.day ORDER BY d.day`,
         `WITH RECURSIVE days AS (SELECT date '2025-12-01' AS day UNION ALL SELECT day + 1 FROM days WHERE day < date '2025-12-31')
 SELECT d.day, count(v.id) FROM days d
 LEFT JOIN visits v ON v.visit_at = d.day AND v.visit_type = 'emergency' AND v.diagnosis_code = 'B54'
+ AND v.facility_id IN (SELECT id FROM facilities WHERE level = 'General Hospital')
+GROUP BY d.day ORDER BY d.day`,
+        `SELECT g, (SELECT count(*) FROM visits v JOIN facilities f ON f.id = v.facility_id
+  WHERE f.level = 'General Hospital' AND v.visit_type = 'emergency' AND v.diagnosis_code = 'B54' AND v.visit_at::date = g::date)
+FROM generate_series(date '2025-12-01', date '2025-12-31', interval '1 day') g ORDER BY 1`,
+        `WITH RECURSIVE days AS (SELECT date '2025-12-01' AS day UNION ALL SELECT day + 1 FROM days WHERE day < date '2025-12-31')
+SELECT d.day, count(v.id) FROM days d
+LEFT JOIN visits v ON v.visit_at::date = d.day AND v.visit_type = 'emergency' AND v.diagnosis_code = 'B54'
+LEFT JOIN facilities f ON f.id = v.facility_id
+WHERE f.level = 'General Hospital'
+GROUP BY d.day ORDER BY d.day`,
+        `WITH RECURSIVE days AS (SELECT date '2025-12-01' AS day UNION ALL SELECT day + 1 FROM days WHERE day < date '2025-12-31')
+SELECT d.day, count(v.id) FROM days d
+LEFT JOIN visits v ON v.visit_at::date = d.day AND v.visit_type = 'emergency' AND v.diagnosis_code = 'B54'
+ AND v.facility_id IN (SELECT id FROM facilities WHERE level = 'General Hospital')
+GROUP BY d.day ORDER BY count(v.id) DESC, d.day`,
+        `WITH RECURSIVE days AS (SELECT date '2025-12-01' AS day UNION ALL SELECT day + 1 FROM days WHERE day < date '2025-12-31')
+SELECT d.day, count(v.id) FROM days d
+LEFT JOIN visits v ON (v.visit_at AT TIME ZONE 'UTC')::date = d.day AND v.visit_type = 'emergency' AND v.diagnosis_code = 'B54'
  AND v.facility_id IN (SELECT id FROM facilities WHERE level = 'General Hospital')
 GROUP BY d.day ORDER BY d.day`,
       ],
@@ -1059,6 +1419,12 @@ ORDER BY 1`,
   SELECT date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits
   WHERE visit_at::date BETWEEN '2025-01-01' AND '2025-12-31' GROUP BY 1)
 SELECT a.month, a.n, (SELECT sum(b.n) FROM m b WHERE b.month <= a.month) FROM m a ORDER BY a.month`,
+        `SELECT month, n, sum(n) OVER (ORDER BY month ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+FROM (SELECT make_date(2025, extract(month FROM visit_at)::int, 1) AS month, count(*) AS n FROM visits
+      WHERE to_char(visit_at, 'YYYY') = '2025' GROUP BY 1) m ORDER BY month`,
+        `select (date_trunc('month', visit_at))::date as "Month", count(*) as "Visits",
+       sum(count(*)) over (order by (date_trunc('month', visit_at))::date) as "Running"
+from visits where visit_at >= '2025-01-01' and visit_at < '2026-01-01' group by 1 order by 1`,
       ],
       mustFail: [
         `SELECT month, n, sum(n) OVER ()
@@ -1074,6 +1440,16 @@ ORDER BY month`,
 FROM (SELECT date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits
       WHERE visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1) m
 ORDER BY month`,
+        `SELECT date_trunc('month', visit_at), count(*), sum(count(*)) OVER (ORDER BY date_trunc('month', visit_at))
+FROM visits WHERE visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1 ORDER BY 1`,
+        `SELECT date_trunc('month', visit_at AT TIME ZONE 'UTC')::date, count(*), sum(count(*)) OVER (ORDER BY date_trunc('month', visit_at AT TIME ZONE 'UTC'))
+FROM visits WHERE visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1 ORDER BY 1`,
+        `SELECT month, n, count(*) OVER (ORDER BY month)
+FROM (SELECT date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits
+      WHERE visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1) m ORDER BY month`,
+        `SELECT month, n, sum(n) OVER (PARTITION BY month ORDER BY month)
+FROM (SELECT date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits
+      WHERE visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1) m ORDER BY month`,
       ],
     },
   },
@@ -1114,6 +1490,12 @@ SELECT c.level, c.code, c.n, round(100.0 * c.n / t.total, 1) FROM c JOIN t USING
 FROM (SELECT f.level, d.code, count(*) AS n FROM visits v JOIN facilities f ON f.id = v.facility_id
       JOIN diagnoses d ON d.code = v.diagnosis_code GROUP BY 1, 2) x
 WINDOW w AS (PARTITION BY level)`,
+        `SELECT level, code, n, round((n * 100)::numeric / sum(n) OVER (PARTITION BY level), 1)
+FROM (SELECT f.level, v.diagnosis_code AS code, count(*) AS n FROM visits v JOIN facilities f ON f.id = v.facility_id
+      WHERE v.diagnosis_code IS NOT NULL GROUP BY 1, 2) x`,
+        `SELECT f.level, v.diagnosis_code, count(*),
+  round(100.0 * count(*) / (SELECT count(v2.diagnosis_code) FROM visits v2 JOIN facilities f2 ON f2.id = v2.facility_id WHERE f2.level = f.level), 1)
+FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE v.diagnosis_code IS NOT NULL GROUP BY f.level, v.diagnosis_code`,
       ],
       mustFail: [
         `SELECT f.level, v.diagnosis_code, count(*), round(100.0 * count(*) / sum(count(*)) OVER (), 1)
@@ -1126,30 +1508,38 @@ WHERE diagnosis_code IS NOT NULL`,
         `SELECT f.level, v.diagnosis_code, count(*), 100 * count(*) / sum(count(*)) OVER (PARTITION BY f.level)::int
 FROM visits v JOIN facilities f ON f.id = v.facility_id
 WHERE v.diagnosis_code IS NOT NULL GROUP BY f.level, v.diagnosis_code`,
+        `SELECT f.level, v.diagnosis_code, count(*),
+  round(100.0 * count(*) / (SELECT count(*) FROM visits v2 JOIN facilities f2 ON f2.id = v2.facility_id WHERE f2.level = f.level), 1)
+FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE v.diagnosis_code IS NOT NULL GROUP BY f.level, v.diagnosis_code`,
+        `SELECT f.level, v.diagnosis_code, count(*), round(100.0 * count(*) / sum(count(*)) OVER (PARTITION BY v.diagnosis_code), 1)
+FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE v.diagnosis_code IS NOT NULL GROUP BY f.level, v.diagnosis_code`,
+        `SELECT f.level, v.diagnosis_code, count(*), round(100.0 * count(*) / sum(count(*)) OVER (PARTITION BY f.level), 1)
+FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE v.diagnosis_code IS NOT NULL AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY f.level, v.diagnosis_code`,
       ],
     },
   },
   {
     id: 'm01-a21',
     tier: 'B',
-    title: 'Each facility’s busiest month',
+    title: 'Each facility’s busiest month for emergencies',
     prompt:
-      'For each facility, which month had the most visits, across all the data? A month means a month of a particular ' +
+      'For each facility, which month had the most emergency visits, across all the data? A month means a month of a particular ' +
       'year, in Kampala time (December 2024 and December 2025 are different months). If months tie, show all of them. ' +
-      'Columns: facility name, month as a date, its first day (for example 2025-03-01, not a timestamp), visits. Any order.',
+      'Columns: facility name, month as a date, its first day (for example 2025-03-01, not a timestamp), emergency visits. Any order.',
     hints: [
-      'Count visits per facility and month first, then rank the months within each facility.',
+      'Count emergency visits per facility and month first, then rank the months within each facility.',
       'rank() OVER (PARTITION BY facility_id ORDER BY n DESC), and keep rank 1. rank() gives tied rows the same rank.',
     ],
     explanation:
       'Rank inside each facility with PARTITION BY, then keep rank 1. rank() keeps ties; row_number() would pick one ' +
-      'tied month arbitrarily. extract(month …) merges December 2024 with December 2025, which is a different ' +
+      'tied month arbitrarily, and with monthly emergency counts this small, ties for first place do happen. extract(month …) merges December 2024 with December 2025, which is a different ' +
       'question; date_trunc(\'month\', visit_at) keeps the year and works in the session time zone.',
     grader: {
       kind: 'result',
       reference: `WITH monthly AS (
   SELECT v.facility_id, date_trunc('month', v.visit_at)::date AS month, count(*) AS n
   FROM visits v
+  WHERE v.visit_type = 'emergency'
   GROUP BY 1, 2
 ), ranked AS (
   SELECT m.*, rank() OVER (PARTITION BY m.facility_id ORDER BY m.n DESC) AS r
@@ -1164,31 +1554,49 @@ WHERE r.r = 1`,
     tests: {
       mustPass: [
         `WITH monthly AS (
-  SELECT facility_id, date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits GROUP BY 1, 2)
+  SELECT facility_id, date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits WHERE visit_type = 'emergency' GROUP BY 1, 2)
 SELECT f.name, m.month, m.n FROM monthly m JOIN facilities f ON f.id = m.facility_id
 WHERE m.n = (SELECT max(n) FROM monthly m2 WHERE m2.facility_id = m.facility_id)`,
         `SELECT name, month, n FROM (
   SELECT f.name, date_trunc('month', v.visit_at)::date AS month, count(*) AS n,
          max(count(*)) OVER (PARTITION BY f.id) AS best
-  FROM visits v JOIN facilities f ON f.id = v.facility_id GROUP BY f.id, f.name, 2) x
+  FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE v.visit_type = 'emergency' GROUP BY f.id, f.name, 2) x
 WHERE n = best`,
+        `WITH monthly AS (SELECT facility_id, date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits WHERE visit_type = 'emergency' GROUP BY 1, 2)
+SELECT f.name, m.month, m.n FROM monthly m JOIN facilities f ON f.id = m.facility_id
+WHERE m.n >= ALL (SELECT n FROM monthly m2 WHERE m2.facility_id = m.facility_id)`,
+        `SELECT name, month, n FROM (
+  SELECT f.name, date_trunc('month', v.visit_at)::date AS month, count(*) AS n,
+         dense_rank() OVER (PARTITION BY f.id ORDER BY count(*) DESC) AS r
+  FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE v.visit_type = 'emergency' GROUP BY f.id, f.name, 2) x WHERE r = 1`,
       ],
       mustFail: [
         `WITH monthly AS (
-  SELECT facility_id, date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits GROUP BY 1, 2),
+  SELECT facility_id, date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits WHERE visit_type = 'emergency' GROUP BY 1, 2),
 ranked AS (SELECT *, rank() OVER (ORDER BY n DESC) AS r FROM monthly)
 SELECT f.name, month, n FROM ranked JOIN facilities f ON f.id = facility_id WHERE r = 1`,
         `WITH monthly AS (
-  SELECT facility_id, date_trunc('month', visit_at AT TIME ZONE 'UTC')::date AS month, count(*) AS n FROM visits GROUP BY 1, 2),
+  SELECT facility_id, date_trunc('month', visit_at AT TIME ZONE 'UTC')::date AS month, count(*) AS n FROM visits WHERE visit_type = 'emergency' GROUP BY 1, 2),
 ranked AS (SELECT *, rank() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM monthly)
 SELECT f.name, month, n FROM ranked JOIN facilities f ON f.id = facility_id WHERE r = 1`,
         `WITH monthly AS (
-  SELECT facility_id, date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits GROUP BY 1, 2),
+  SELECT facility_id, date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits WHERE visit_type = 'emergency' GROUP BY 1, 2),
 ranked AS (SELECT *, rank() OVER (PARTITION BY facility_id ORDER BY n) AS r FROM monthly)
 SELECT f.name, month, n FROM ranked JOIN facilities f ON f.id = facility_id WHERE r = 1`,
         `WITH monthly AS (
-  SELECT facility_id, date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits GROUP BY 1, 2),
+  SELECT facility_id, date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits WHERE visit_type = 'emergency' GROUP BY 1, 2),
 ranked AS (SELECT *, row_number() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM monthly)
+SELECT f.name, month, n FROM ranked JOIN facilities f ON f.id = facility_id WHERE r = 1`,
+        `SELECT DISTINCT ON (f.id) f.name, date_trunc('month', v.visit_at)::date, count(*)
+FROM visits v JOIN facilities f ON f.id = v.facility_id WHERE v.visit_type = 'emergency' GROUP BY f.id, f.name, 2 ORDER BY f.id, count(*) DESC`,
+        `WITH monthly AS (SELECT facility_id, make_date(2025, extract(month FROM visit_at)::int, 1) AS month, count(*) AS n FROM visits WHERE visit_type = 'emergency' GROUP BY 1, 2),
+ranked AS (SELECT *, rank() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM monthly)
+SELECT f.name, month, n FROM ranked JOIN facilities f ON f.id = facility_id WHERE r = 1`,
+        `WITH monthly AS (SELECT facility_id, date_trunc('month', visit_at) AS month, count(*) AS n FROM visits WHERE visit_type = 'emergency' GROUP BY 1, 2),
+ranked AS (SELECT *, rank() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM monthly)
+SELECT f.name, month, n FROM ranked JOIN facilities f ON f.id = facility_id WHERE r = 1`,
+        `WITH monthly AS (SELECT facility_id, date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits GROUP BY 1, 2),
+ranked AS (SELECT *, rank() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM monthly)
 SELECT f.name, month, n FROM ranked JOIN facilities f ON f.id = facility_id WHERE r = 1`,
       ],
     },
@@ -1224,6 +1632,14 @@ FROM x
 WHERE visit_type = 'emergency'
   AND visit_at >= '2025-12-01' AND visit_at < '2025-12-08'`,
       ordered: false,
+      setup: testVisits([
+        { patient: 1, at: '2025-12-03 10:00', type: 'emergency' }, // first visit ever: NULL
+        { patient: 2, at: '2025-11-20 09:00' },
+        { patient: 2, at: '2025-12-05 09:00' },
+        { patient: 2, at: '2025-12-05 09:00', type: 'emergency' }, // same time, higher id: the outpatient visit is earlier
+        { patient: 2, at: '2025-12-06 09:00', type: 'emergency' },
+        { patient: 2, at: '2025-12-06 09:00', lowId: true }, // same time, lower id although stored later: it is earlier
+      ]),
     },
     tests: {
       mustPass: [
@@ -1238,6 +1654,13 @@ WHERE v.visit_type = 'emergency' AND v.visit_at::date BETWEEN '2025-12-01' AND '
   SELECT id, patient_id, visit_type, visit_at::date AS d, lag(visit_at::date) OVER w AS prev
   FROM visits WINDOW w AS (PARTITION BY patient_id ORDER BY visit_at, id)) t
 WHERE visit_type = 'emergency' AND d BETWEEN '2025-12-01' AND '2025-12-07'`,
+        `SELECT v.id, v.patient_id, v.visit_at::date - p.visit_at::date FROM visits v
+LEFT JOIN LATERAL (SELECT visit_at FROM visits p WHERE p.patient_id = v.patient_id AND (p.visit_at, p.id) < (v.visit_at, v.id)
+                   ORDER BY p.visit_at DESC, p.id DESC LIMIT 1) p ON true
+WHERE v.visit_type = 'emergency' AND v.visit_at >= '2025-12-01' AND v.visit_at < '2025-12-08'`,
+        `SELECT id, patient_id, extract(day FROM date_trunc('day', visit_at) - date_trunc('day', prev)) FROM (
+  SELECT id, patient_id, visit_type, visit_at, lag(visit_at) OVER (PARTITION BY patient_id ORDER BY visit_at, id) AS prev FROM visits) t
+WHERE visit_type = 'emergency' AND to_char(visit_at, 'YYYY-MM-DD') BETWEEN '2025-12-01' AND '2025-12-07'`,
       ],
       mustFail: [
         `SELECT id, patient_id, visit_at::date - lag(visit_at::date) OVER (PARTITION BY patient_id ORDER BY visit_at, id)
@@ -1260,20 +1683,39 @@ WHERE visit_type = 'emergency' AND visit_at >= '2025-12-01' AND visit_at < '2025
   FROM visits)
 SELECT id, patient_id, gap FROM x
 WHERE visit_type = 'emergency' AND visit_at >= '2025-12-01' AND visit_at < '2025-12-08'`,
+        `WITH x AS (SELECT id, patient_id, visit_type, visit_at,
+  (visit_at AT TIME ZONE 'UTC')::date - lag((visit_at AT TIME ZONE 'UTC')::date) OVER (PARTITION BY patient_id ORDER BY visit_at, id) AS gap FROM visits)
+SELECT id, patient_id, gap FROM x WHERE visit_type = 'emergency' AND visit_at >= '2025-12-01' AND visit_at < '2025-12-08'`,
+        `WITH x AS (SELECT id, patient_id, visit_type, visit_at,
+  visit_at::date - lag(visit_at::date) OVER (PARTITION BY patient_id ORDER BY id) AS gap FROM visits)
+SELECT id, patient_id, gap FROM x WHERE visit_type = 'emergency' AND visit_at >= '2025-12-01' AND visit_at < '2025-12-08'`,
+        `WITH x AS (SELECT id, patient_id, visit_type, visit_at,
+  round(extract(epoch FROM visit_at - lag(visit_at) OVER (PARTITION BY patient_id ORDER BY visit_at, id)) / 86400) AS gap FROM visits)
+SELECT id, patient_id, gap FROM x WHERE visit_type = 'emergency' AND visit_at >= '2025-12-01' AND visit_at < '2025-12-08'`,
+        `WITH x AS (SELECT id, patient_id, visit_type, visit_at,
+  lead(visit_at::date) OVER (PARTITION BY patient_id ORDER BY visit_at, id) - visit_at::date AS gap FROM visits)
+SELECT id, patient_id, gap FROM x WHERE visit_type = 'emergency' AND visit_at >= '2025-12-01' AND visit_at < '2025-12-08'`,
+        `WITH x AS (SELECT id, patient_id, visit_type, visit_at,
+  coalesce(visit_at::date - lag(visit_at::date) OVER (PARTITION BY patient_id ORDER BY visit_at, id), 0) AS gap FROM visits)
+SELECT id, patient_id, gap FROM x WHERE visit_type = 'emergency' AND visit_at >= '2025-12-01' AND visit_at < '2025-12-08'`,
+        `WITH x AS (SELECT id, patient_id, visit_type, visit_at,
+  visit_at::date - lag(visit_at::date) OVER (PARTITION BY patient_id ORDER BY visit_at) AS gap FROM visits)
+SELECT id, patient_id, gap FROM x WHERE visit_type = 'emergency' AND visit_at >= '2025-12-01' AND visit_at < '2025-12-08'`,
       ],
     },
   },
   {
     id: 'm01-a23',
     tier: 'B',
-    title: 'Top three diagnoses per facility',
+    title: 'Top three emergency diagnoses per facility',
     prompt:
-      'For each facility, find its most common diagnoses in 2025 (Kampala time), ignoring visits with no diagnosis. Rank ' +
+      'For each facility, find the most common diagnoses among its emergency visits in 2025 (Kampala time), ignoring visits ' +
+      'with no diagnosis. Rank ' +
       'by number of visits, most first; equal counts share a rank and the next rank skips (1, 2, 2, 4). Keep every ' +
       'diagnosis ranked 3 or better, so a tie for third place shows all the tied diagnoses. Columns: facility name, ' +
       'diagnosis code, visits. Any order.',
     hints: [
-      'Count per facility and diagnosis, then rank within each facility.',
+      'Count emergency visits per facility and diagnosis, then rank within each facility.',
       'The ranking described is rank(), not dense_rank() or row_number(). Keep rank <= 3.',
     ],
     explanation:
@@ -1285,7 +1727,7 @@ WHERE visit_type = 'emergency' AND visit_at >= '2025-12-01' AND visit_at < '2025
       reference: `WITH counts AS (
   SELECT v.facility_id, v.diagnosis_code, count(*) AS n
   FROM visits v
-  WHERE v.diagnosis_code IS NOT NULL AND ${IN_2025}
+  WHERE v.visit_type = 'emergency' AND v.diagnosis_code IS NOT NULL AND ${IN_2025}
   GROUP BY 1, 2
 ), ranked AS (
   SELECT c.*, rank() OVER (PARTITION BY c.facility_id ORDER BY c.n DESC) AS r
@@ -1303,44 +1745,69 @@ WHERE r.r <= 3`,
   SELECT f.name, v.diagnosis_code AS code, count(*) AS n,
          rank() OVER (PARTITION BY f.id ORDER BY count(*) DESC) AS r
   FROM visits v JOIN facilities f ON f.id = v.facility_id
-  WHERE v.diagnosis_code IS NOT NULL AND extract(year FROM v.visit_at) = 2025
+  WHERE v.visit_type = 'emergency' AND v.diagnosis_code IS NOT NULL AND extract(year FROM v.visit_at) = 2025
   GROUP BY f.id, f.name, v.diagnosis_code) x
 WHERE r <= 3`,
         `WITH c AS (
   SELECT facility_id, diagnosis_code, count(*) AS n FROM visits
-  WHERE diagnosis_code IS NOT NULL AND visit_at::date BETWEEN '2025-01-01' AND '2025-12-31' GROUP BY 1, 2)
+  WHERE visit_type = 'emergency' AND diagnosis_code IS NOT NULL AND visit_at::date BETWEEN '2025-01-01' AND '2025-12-31' GROUP BY 1, 2)
 SELECT f.name, c.diagnosis_code, c.n FROM c JOIN facilities f ON f.id = c.facility_id
 WHERE (SELECT count(*) FROM c c2 WHERE c2.facility_id = c.facility_id AND c2.n > c.n) < 3`,
+        `select name, diagnosis_code, n from (
+  select f.name, v.diagnosis_code, count(*) as n, rank() over w as r
+  from visits v join facilities f on f.id = v.facility_id
+  where v.visit_type = 'emergency' and v.diagnosis_code is not null and to_char(v.visit_at, 'YYYY') = '2025'
+  group by f.name, v.diagnosis_code
+  window w as (partition by f.name order by count(*) desc)) x
+where r <= 3`,
+        `WITH c AS (SELECT facility_id, diagnosis_code, count(*) AS n FROM visits v
+  WHERE visit_type = 'emergency' AND diagnosis_code IS NOT NULL AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY 1, 2)
+SELECT f.name, c.diagnosis_code, c.n FROM c JOIN facilities f ON f.id = c.facility_id
+WHERE 1 + (SELECT count(*) FROM c c2 WHERE c2.facility_id = c.facility_id AND c2.n > c.n) <= 3`,
       ],
       mustFail: [
         `WITH c AS (
   SELECT facility_id, diagnosis_code, count(*) AS n FROM visits
-  WHERE diagnosis_code IS NOT NULL AND visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1, 2),
+  WHERE visit_type = 'emergency' AND diagnosis_code IS NOT NULL AND visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1, 2),
 r AS (SELECT *, rank() OVER (ORDER BY n DESC) AS r FROM c)
 SELECT f.name, diagnosis_code, n FROM r JOIN facilities f ON f.id = facility_id WHERE r <= 3`,
         `WITH c AS (
   SELECT facility_id, diagnosis_code, count(*) AS n FROM visits
-  WHERE diagnosis_code IS NOT NULL GROUP BY 1, 2),
+  WHERE visit_type = 'emergency' AND diagnosis_code IS NOT NULL GROUP BY 1, 2),
 r AS (SELECT *, rank() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM c)
 SELECT f.name, diagnosis_code, n FROM r JOIN facilities f ON f.id = facility_id WHERE r <= 3`,
         `WITH c AS (
   SELECT facility_id, diagnosis_code, count(*) AS n FROM visits
-  WHERE diagnosis_code IS NOT NULL AND visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1, 2),
+  WHERE visit_type = 'emergency' AND diagnosis_code IS NOT NULL AND visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1, 2),
 r AS (SELECT *, rank() OVER (PARTITION BY facility_id ORDER BY n) AS r FROM c)
 SELECT f.name, diagnosis_code, n FROM r JOIN facilities f ON f.id = facility_id WHERE r <= 3`,
         `WITH c AS (
   SELECT facility_id, diagnosis_code, count(*) AS n FROM visits
-  WHERE diagnosis_code IS NOT NULL AND visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1, 2),
+  WHERE visit_type = 'emergency' AND diagnosis_code IS NOT NULL AND visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1, 2),
 r AS (SELECT *, row_number() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM c)
 SELECT f.name, diagnosis_code, n FROM r JOIN facilities f ON f.id = facility_id WHERE r <= 3`,
         `WITH c AS (
   SELECT facility_id, diagnosis_code, count(*) AS n FROM visits
-  WHERE diagnosis_code IS NOT NULL AND visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1, 2),
+  WHERE visit_type = 'emergency' AND diagnosis_code IS NOT NULL AND visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1, 2),
 r AS (SELECT *, dense_rank() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM c)
 SELECT f.name, diagnosis_code, n FROM r JOIN facilities f ON f.id = facility_id WHERE r <= 3`,
         `WITH c AS (
   SELECT facility_id, diagnosis_code, count(*) AS n FROM visits
-  WHERE visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1, 2),
+  WHERE visit_type = 'emergency' AND visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1, 2),
+r AS (SELECT *, rank() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM c)
+SELECT f.name, diagnosis_code, n FROM r JOIN facilities f ON f.id = facility_id WHERE r <= 3`,
+        `WITH c AS (SELECT facility_id, diagnosis_code, count(*) AS n FROM visits v WHERE visit_type = 'emergency' AND diagnosis_code IS NOT NULL AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY 1, 2),
+r AS (SELECT *, rank() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM c)
+SELECT f.name, diagnosis_code, n FROM r JOIN facilities f ON f.id = facility_id WHERE r < 3`,
+        `WITH c AS (SELECT facility_id, diagnosis_code, count(*) AS n FROM visits v
+  WHERE visit_type = 'emergency' AND diagnosis_code IS NOT NULL AND extract(year FROM visit_at AT TIME ZONE 'UTC') = 2025 GROUP BY 1, 2),
+r AS (SELECT *, rank() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM c)
+SELECT f.name, diagnosis_code, n FROM r JOIN facilities f ON f.id = facility_id WHERE r <= 3`,
+        `SELECT f.name, x.diagnosis_code, x.n FROM facilities f CROSS JOIN LATERAL (
+  SELECT diagnosis_code, count(*) AS n FROM visits v WHERE v.facility_id = f.id AND v.visit_type = 'emergency' AND diagnosis_code IS NOT NULL
+    AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01'
+  GROUP BY diagnosis_code ORDER BY n DESC LIMIT 3) x`,
+        `WITH c AS (SELECT facility_id, diagnosis_code, count(*) AS n FROM visits v WHERE diagnosis_code IS NOT NULL AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY 1, 2),
 r AS (SELECT *, rank() OVER (PARTITION BY facility_id ORDER BY n DESC) AS r FROM c)
 SELECT f.name, diagnosis_code, n FROM r JOIN facilities f ON f.id = facility_id WHERE r <= 3`,
       ],
@@ -1393,6 +1860,14 @@ ORDER BY a.month`,
 FROM (SELECT extract(year FROM visit_at)::int AS yr, extract(month FROM visit_at)::int AS mon FROM visits) x
 WHERE yr IN (2024, 2025)
 GROUP BY mon ORDER BY mon`,
+        `WITH m AS (SELECT date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits GROUP BY 1)
+SELECT a.month, a.n, b.n, a.n - b.n FROM m a JOIN m b ON b.month = (a.month - interval '12 months')::date
+WHERE a.month >= '2025-01-01' AND a.month < '2026-01-01' ORDER BY 1`,
+        `SELECT m, (SELECT count(*) FROM visits WHERE visit_at >= m AND visit_at < m + interval '1 month'),
+       (SELECT count(*) FROM visits WHERE visit_at >= m - interval '1 year' AND visit_at < m - interval '1 year' + interval '1 month'),
+       (SELECT count(*) FROM visits WHERE visit_at >= m AND visit_at < m + interval '1 month')
+     - (SELECT count(*) FROM visits WHERE visit_at >= m - interval '1 year' AND visit_at < m - interval '1 year' + interval '1 month')
+FROM (SELECT g::date AS m FROM generate_series(date '2025-01-01', date '2025-12-01', interval '1 month') g) months ORDER BY m`,
       ],
       mustFail: [
         `WITH m AS (SELECT date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits GROUP BY 1),
@@ -1406,6 +1881,15 @@ GROUP BY 1 ORDER BY 1`,
         `WITH m AS (SELECT date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits GROUP BY 1),
 y AS (SELECT month, n, lag(n, 12) OVER (ORDER BY month) AS prev FROM m)
 SELECT month, n, prev, prev - n FROM y WHERE month >= '2025-01-01' ORDER BY month`,
+        `WITH m AS (SELECT date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits
+  WHERE visit_at >= '2025-01-01' AND visit_at < '2026-01-01' GROUP BY 1)
+SELECT month, n, lag(n, 12) OVER (ORDER BY month), n - lag(n, 12) OVER (ORDER BY month) FROM m ORDER BY month`,
+        `WITH m AS (SELECT date_trunc('month', visit_at AT TIME ZONE 'UTC')::date AS month, count(*) AS n FROM visits GROUP BY 1),
+y AS (SELECT month, n, lag(n, 12) OVER (ORDER BY month) AS prev FROM m)
+SELECT month, n, prev, n - prev FROM y WHERE month >= '2025-01-01' ORDER BY month`,
+        `WITH m AS (SELECT date_trunc('month', visit_at)::date AS month, count(*) AS n FROM visits GROUP BY 1),
+y AS (SELECT month, n, lag(n, 12) OVER (ORDER BY month) AS prev FROM m)
+SELECT month - interval '1 year', n, prev, n - prev FROM y WHERE month >= '2025-01-01' ORDER BY month`,
       ],
     },
   },
@@ -1436,11 +1920,16 @@ WHERE NOT EXISTS (SELECT 1 FROM facilities o WHERE o.referral_facility_id = f.id
         `SELECT id, name FROM facilities
 WHERE id NOT IN (SELECT referral_facility_id FROM facilities WHERE referral_facility_id IS NOT NULL)`,
         `SELECT f.id, f.name FROM facilities f LEFT JOIN facilities o ON o.referral_facility_id = f.id WHERE o.id IS NULL`,
+        `SELECT id, name FROM facilities EXCEPT SELECT r.id, r.name FROM facilities f JOIN facilities r ON r.id = f.referral_facility_id`,
+        `SELECT id, name FROM facilities WHERE id NOT IN (SELECT coalesce(referral_facility_id, -1) FROM facilities)`,
       ],
       mustFail: [
         `SELECT id, name FROM facilities WHERE id NOT IN (SELECT referral_facility_id FROM facilities)`,
         `SELECT id, name FROM facilities WHERE referral_facility_id IS NULL`,
         `SELECT DISTINCT f.id, f.name FROM facilities f JOIN facilities o ON o.referral_facility_id <> f.id`,
+        `SELECT f.id, f.name FROM facilities f LEFT JOIN facilities o ON o.id = f.referral_facility_id WHERE o.id IS NULL`,
+        `SELECT f.id, f.name FROM facilities f WHERE NOT EXISTS (SELECT 1 FROM facilities o WHERE o.referral_facility_id IS NOT NULL)`,
+        `SELECT id, name FROM facilities WHERE id <> ALL (SELECT referral_facility_id FROM facilities)`,
       ],
     },
   },
@@ -1476,6 +1965,10 @@ GROUP BY f.id, f.name`,
 FROM facilities f JOIN patients p ON p.facility_id = f.id GROUP BY f.name`,
         `SELECT f.name, count(*), sum((p.phone IS NULL)::int), round(100 * avg((p.phone IS NULL)::int), 1)
 FROM patients p JOIN facilities f ON f.id = p.facility_id GROUP BY f.name`,
+        `SELECT f.name, count(*), sum(CASE WHEN p.phone IS NULL THEN 1 ELSE 0 END), round(100 - 100.0 * count(p.phone) / count(*), 1)
+FROM patients p JOIN facilities f ON f.id = p.facility_id GROUP BY f.id, f.name`,
+        `SELECT f.name, count(*), count(*) - count(p.phone), round((100 * (count(*) - count(p.phone))::float / count(*))::numeric, 1)
+FROM facilities f JOIN patients p ON p.facility_id = f.id GROUP BY f.name`,
       ],
       mustFail: [
         `SELECT f.name, count(*), count(*) FILTER (WHERE p.phone = NULL),
@@ -1484,6 +1977,12 @@ FROM facilities f JOIN patients p ON p.facility_id = f.id GROUP BY f.name`,
         `SELECT f.name, count(*), count(p.phone), round(100.0 * count(p.phone) / count(*), 1)
 FROM facilities f JOIN patients p ON p.facility_id = f.id GROUP BY f.name`,
         `SELECT f.name, count(*), count(*) - count(p.phone), 100 * (count(*) - count(p.phone)) / count(*)
+FROM facilities f JOIN patients p ON p.facility_id = f.id GROUP BY f.name`,
+        `SELECT f.name, count(*), count(*) FILTER (WHERE p.phone = ''), round(100.0 * count(*) FILTER (WHERE p.phone = '') / count(*), 1)
+FROM facilities f JOIN patients p ON p.facility_id = f.id GROUP BY f.name`,
+        `SELECT f.name, count(*), count(*) - count(p.phone), round(100.0 * (count(*) - count(p.phone)) / (SELECT count(*) FROM patients), 1)
+FROM facilities f JOIN patients p ON p.facility_id = f.id GROUP BY f.name`,
+        `SELECT f.name, count(p.phone), count(*) - count(p.phone), round(100.0 * (count(*) - count(p.phone)) / count(*), 1)
 FROM facilities f JOIN patients p ON p.facility_id = f.id GROUP BY f.name`,
       ],
     },
@@ -1520,6 +2019,8 @@ GROUP BY visit_type`,
         `SELECT visit_type, count(*) FILTER (WHERE coalesce(diagnosis_code, '') <> 'B54') FROM visits
 WHERE visit_at::date BETWEEN '2025-01-01' AND '2025-12-31'
 GROUP BY visit_type`,
+        `SELECT visit_type, count(*) - count(*) FILTER (WHERE diagnosis_code = 'B54') FROM visits v WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY visit_type`,
+        `SELECT visit_type, count(*) FROM visits WHERE date_trunc('year', visit_at) = '2025-01-01' AND coalesce(diagnosis_code, 'none') <> 'B54' GROUP BY 1`,
       ],
       mustFail: [
         `SELECT visit_type, count(*) FROM visits
@@ -1531,6 +2032,10 @@ GROUP BY visit_type`,
         `SELECT visit_type, count(diagnosis_code) FROM visits
 WHERE visit_at >= '2025-01-01' AND visit_at < '2026-01-01' AND diagnosis_code IS DISTINCT FROM 'B54'
 GROUP BY visit_type`,
+        `SELECT visit_type, count(*) FROM visits v WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' AND NOT (diagnosis_code = 'B54') GROUP BY visit_type`,
+        `SELECT visit_type, count(*) FROM visits v WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' AND diagnosis_code IS DISTINCT FROM 'b54' GROUP BY visit_type`,
+        `SELECT visit_type, count(*) FROM visits v WHERE extract(year FROM visit_at AT TIME ZONE 'UTC') = 2025 AND diagnosis_code IS DISTINCT FROM 'B54' GROUP BY visit_type`,
+        `SELECT visit_type, count(*) FILTER (WHERE diagnosis_code <> 'B54') FROM visits v WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY visit_type`,
       ],
     },
   },
@@ -1568,6 +2073,8 @@ GROUP BY h ORDER BY h`,
         `SELECT date_part('hour', visit_at AT TIME ZONE 'Africa/Kampala'), count(*) FROM visits
 WHERE visit_type = 'emergency' AND extract(year FROM visit_at) = 2025
 GROUP BY 1 ORDER BY 1`,
+        `SELECT extract(hour FROM visit_at::time), count(*) FROM visits v WHERE visit_type = 'emergency' AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY 1 ORDER BY 1`,
+        `SELECT date_part('hour', visit_at AT TIME ZONE INTERVAL '+03:00') AS h, count(*) FROM visits v WHERE visit_type = 'emergency' AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY h ORDER BY h`,
       ],
       mustFail: [
         `SELECT extract(hour FROM visit_at AT TIME ZONE 'UTC')::int, count(*) FROM visits
@@ -1579,6 +2086,10 @@ GROUP BY h ORDER BY h`,
         `SELECT extract(hour FROM visit_at)::int, count(*) FROM visits
 WHERE visit_type = 'emergency' AND visit_at >= '2025-01-01' AND visit_at < '2026-01-01'
 GROUP BY 1 ORDER BY 2 DESC`,
+        `SELECT extract(hour FROM visit_at AT TIME ZONE '+03')::int, count(*) FROM visits v WHERE visit_type = 'emergency' AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY 1 ORDER BY 1`,
+        `SELECT extract(hour FROM visit_at AT TIME ZONE 'UTC+3')::int, count(*) FROM visits v WHERE visit_type = 'emergency' AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY 1 ORDER BY 1`,
+        `SELECT to_char(visit_at, 'HH24'), count(*) FROM visits v WHERE visit_type = 'emergency' AND v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY 1 ORDER BY 1`,
+        `SELECT extract(hour FROM visit_at)::int, count(*) FROM visits v WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY 1 ORDER BY 1`,
       ],
     },
   },
@@ -1616,6 +2127,10 @@ GROUP BY f.name`,
 FROM facilities f JOIN visits v ON v.facility_id = f.id
 WHERE date_trunc('quarter', v.visit_at) = '2025-10-01'
 GROUP BY f.name`,
+        `SELECT f.name, count(*) FROM visits v JOIN facilities f ON f.id = v.facility_id
+WHERE v.visit_at >= '2025-10-01' AND v.visit_at < '2026-01-01' AND to_char(v.visit_at, 'ID') IN ('6', '7') GROUP BY f.name`,
+        `SELECT f.name, count(*) FROM visits v JOIN facilities f ON f.id = v.facility_id
+WHERE v.visit_at >= '2025-10-01' AND v.visit_at < '2026-01-01' AND trim(to_char(v.visit_at, 'Day')) IN ('Saturday', 'Sunday') GROUP BY f.name`,
       ],
       mustFail: [
         `SELECT f.name, count(*) FROM visits v JOIN facilities f ON f.id = v.facility_id
@@ -1628,15 +2143,23 @@ GROUP BY f.name`,
 WHERE v.visit_at >= '2025-10-01' AND v.visit_at < '2026-01-01'
   AND extract(isodow FROM v.visit_at AT TIME ZONE 'UTC') IN (6, 7)
 GROUP BY f.name`,
+        `SELECT f.name, count(*) FROM visits v JOIN facilities f ON f.id = v.facility_id
+WHERE v.visit_at >= '2025-10-01' AND v.visit_at < '2026-01-01' AND to_char(v.visit_at, 'Day') IN ('Saturday', 'Sunday') GROUP BY f.name`,
+        `SELECT f.name, count(*) FROM visits v JOIN facilities f ON f.id = v.facility_id
+WHERE v.visit_at >= '2025-10-01' AND v.visit_at < '2026-01-01' AND extract(isodow FROM v.visit_at) IN (0, 6) GROUP BY f.name`,
+        `SELECT f.name, count(*) FROM visits v JOIN facilities f ON f.id = v.facility_id
+WHERE v.visit_at >= '2025-10-01' AND v.visit_at < '2026-01-01' AND extract(dow FROM v.visit_at) IN (5, 6) GROUP BY f.name`,
+        `SELECT f.name, count(*) FROM visits v JOIN facilities f ON f.id = v.facility_id
+WHERE v.visit_at >= '2025-10-01' AND v.visit_at < '2026-01-01' AND extract(isodow FROM v.visit_at) > 5 AND extract(isodow FROM v.visit_at) < 7 GROUP BY f.name`,
       ],
     },
   },
   {
     id: 'm01-a30',
     tier: 'B',
-    title: 'December visits by age band',
+    title: 'Visits in 2025 by age band',
     prompt:
-      'Break down visits in December 2025 (Kampala time) by the patient’s age in whole years on the date of the ' +
+      'Break down visits in 2025 (Kampala time) by the patient’s age in whole years on the date of the ' +
       'visit (Kampala date), as age() counts it. Bands: \'0-4\', \'5-17\', \'18-49\', ' +
       '\'50+\' (text exactly as written). Columns: band, visits. Leave out bands with no visits. Any order.',
     hints: [
@@ -1644,9 +2167,11 @@ GROUP BY f.name`,
       'Age on the visit date, not today: age(date_of_birth) alone measures to the current date. Then a CASE puts each age in its band.',
     ],
     explanation:
-      'A patient’s age changes, so a report about December 2025 must measure age on the visit date: age(date_of_birth) ' +
+      'A patient’s age changes during the year, so a report about 2025 must measure age on the visit date: age(date_of_birth) ' +
       'with one argument measures to today and drifts every time you run it. Subtracting birth years ignores whether the ' +
-      'birthday has come yet that year. In the CASE, check the bands from youngest up so each age lands in exactly one.',
+      'birthday has come yet that year. Comparing age(…) with interval \'5 years\' is subtly off too: interval comparison ' +
+      'treats a month as 30 days, so 4 years 11 months 30 days counts as 5 years. In the CASE, check the bands from ' +
+      'youngest up so each age lands in exactly one.',
     grader: {
       kind: 'result',
       reference: `SELECT CASE WHEN a < 5 THEN '0-4' WHEN a < 18 THEN '5-17' WHEN a < 50 THEN '18-49' ELSE '50+' END AS band,
@@ -1655,7 +2180,7 @@ FROM (
   SELECT extract(year FROM age(v.visit_at::date, p.date_of_birth)) AS a
   FROM visits v
   JOIN patients p ON p.id = v.patient_id
-  WHERE v.visit_at >= '2025-12-01' AND v.visit_at < '2026-01-01'
+  WHERE ${IN_2025}
 ) x
 GROUP BY 1`,
       ordered: false,
@@ -1666,30 +2191,53 @@ GROUP BY 1`,
             WHEN a BETWEEN 18 AND 49 THEN '18-49' ELSE '50+' END, count(*)
 FROM (SELECT date_part('year', age(v.visit_at::date, p.date_of_birth)) AS a
       FROM visits v JOIN patients p ON p.id = v.patient_id
-      WHERE date_trunc('month', v.visit_at) = '2025-12-01') x
+      WHERE date_trunc('year', v.visit_at) = '2025-01-01') x
 GROUP BY 1`,
         `WITH ages AS (
   SELECT extract(year FROM v.visit_at::date) - extract(year FROM p.date_of_birth)
          - CASE WHEN to_char(v.visit_at::date, 'MMDD') < to_char(p.date_of_birth, 'MMDD') THEN 1 ELSE 0 END AS a
   FROM visits v JOIN patients p ON p.id = v.patient_id
-  WHERE v.visit_at::date BETWEEN '2025-12-01' AND '2025-12-31')
+  WHERE v.visit_at::date BETWEEN '2025-01-01' AND '2025-12-31')
 SELECT CASE WHEN a >= 50 THEN '50+' WHEN a >= 18 THEN '18-49' WHEN a >= 5 THEN '5-17' ELSE '0-4' END, count(*)
 FROM ages GROUP BY 1`,
+        `SELECT CASE WHEN p.date_of_birth > v.visit_at::date - interval '5 years' THEN '0-4'
+            WHEN p.date_of_birth > v.visit_at::date - interval '18 years' THEN '5-17'
+            WHEN p.date_of_birth > v.visit_at::date - interval '50 years' THEN '18-49' ELSE '50+' END, count(*)
+FROM visits v JOIN patients p ON p.id = v.patient_id
+WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY 1`,
+        `select (array['0-4', '5-17', '18-49', '50+'])[width_bucket(extract(year from age(v.visit_at::date, p.date_of_birth)), array[5, 18, 50]) + 1] as band,
+       count(*)
+from visits v join patients p on p.id = v.patient_id
+where to_char(v.visit_at, 'YYYY') = '2025' group by band`,
       ],
       mustFail: [
         `SELECT CASE WHEN a < 5 THEN '0-4' WHEN a < 18 THEN '5-17' WHEN a < 50 THEN '18-49' ELSE '50+' END, count(*)
 FROM (SELECT extract(year FROM age(p.date_of_birth)) AS a FROM visits v JOIN patients p ON p.id = v.patient_id
-      WHERE v.visit_at >= '2025-12-01' AND v.visit_at < '2026-01-01') x
+      WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01') x
 GROUP BY 1`,
         `SELECT CASE WHEN a < 50 THEN '18-49' WHEN a < 18 THEN '5-17' WHEN a < 5 THEN '0-4' ELSE '50+' END, count(*)
 FROM (SELECT extract(year FROM age(v.visit_at::date, p.date_of_birth)) AS a
       FROM visits v JOIN patients p ON p.id = v.patient_id
-      WHERE v.visit_at >= '2025-12-01' AND v.visit_at < '2026-01-01') x
+      WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01') x
 GROUP BY 1`,
         `SELECT CASE WHEN a <= 5 THEN '0-4' WHEN a <= 18 THEN '5-17' WHEN a <= 50 THEN '18-49' ELSE '50+' END, count(*)
 FROM (SELECT extract(year FROM age(v.visit_at::date, p.date_of_birth)) AS a FROM visits v JOIN patients p ON p.id = v.patient_id
-      WHERE v.visit_at >= '2025-12-01' AND v.visit_at < '2026-01-01') x
+      WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01') x
 GROUP BY 1`,
+        `SELECT CASE WHEN a < 5 THEN '0-4' WHEN a < 18 THEN '5-17' WHEN a < 50 THEN '18-49' ELSE '50+' END, count(*)
+FROM (SELECT extract(year FROM v.visit_at) - extract(year FROM p.date_of_birth) AS a FROM visits v JOIN patients p ON p.id = v.patient_id
+      WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01') x GROUP BY 1`,
+        `SELECT CASE WHEN a < 5 THEN '0-4' WHEN a < 18 THEN '5-17' WHEN a < 50 THEN '18-49' ELSE '50+' END, count(*)
+FROM (SELECT (v.visit_at::date - p.date_of_birth) / 365 AS a FROM visits v JOIN patients p ON p.id = v.patient_id
+      WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01') x GROUP BY 1`,
+        `SELECT CASE WHEN age(v.visit_at, p.date_of_birth) < interval '5 years' THEN '0-4'
+            WHEN age(v.visit_at, p.date_of_birth) < interval '18 years' THEN '5-17'
+            WHEN age(v.visit_at, p.date_of_birth) < interval '50 years' THEN '18-49' ELSE '50+' END, count(*)
+FROM visits v JOIN patients p ON p.id = v.patient_id
+WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01' GROUP BY 1`,
+        `SELECT CASE WHEN a < 5 THEN '0 - 4' WHEN a < 18 THEN '5 - 17' WHEN a < 50 THEN '18 - 49' ELSE '50+' END, count(*)
+FROM (SELECT extract(year FROM age(v.visit_at::date, p.date_of_birth)) AS a FROM visits v JOIN patients p ON p.id = v.patient_id
+      WHERE v.visit_at >= '2025-01-01' AND v.visit_at < '2026-01-01') x GROUP BY 1`,
       ],
     },
   },
@@ -1716,6 +2264,7 @@ const THREE_WAYS: Challenge[] = [
 FROM visits v
 ORDER BY v.patient_id, v.visit_at DESC, v.id DESC`,
       ordered: false,
+      setup: LATEST_SETUP,
       requires: [DISTINCT_ON],
       forbids: [NO_WINDOW, NO_LATERAL],
     },
@@ -1727,6 +2276,9 @@ ORDER BY p.id, v.visit_at DESC, v.id DESC`,
         `SELECT patient_id, visit_at, diagnosis_code FROM (
   SELECT DISTINCT ON (patient_id) patient_id, visit_at, diagnosis_code, id FROM visits
   ORDER BY patient_id ASC, visit_at DESC, id DESC) latest`,
+        `select distinct on(patient_id) patient_id, visit_at, diagnosis_code from visits order by patient_id, visit_at desc, id desc`,
+        `SELECT DISTINCT
+ON ("v"."patient_id") "v"."patient_id", "v"."visit_at", "v"."diagnosis_code" FROM "visits" "v" ORDER BY 1, 2 DESC, "v"."id" DESC`,
       ],
       mustFail: [
         `SELECT DISTINCT ON (patient_id) patient_id, visit_at, diagnosis_code FROM visits ORDER BY patient_id, visit_at`,
@@ -1734,6 +2286,18 @@ ORDER BY p.id, v.visit_at DESC, v.id DESC`,
         `SELECT patient_id, visit_at, diagnosis_code FROM (
   SELECT v.*, row_number() OVER (PARTITION BY patient_id ORDER BY visit_at DESC, id DESC) AS rn FROM visits v) x
 WHERE rn = 1`,
+        `SELECT v.patient_id, v.visit_at, v.diagnosis_code FROM visits v
+JOIN (SELECT patient_id, max(visit_at) AS mx FROM visits GROUP BY patient_id) m ON m.patient_id = v.patient_id AND m.mx = v.visit_at -- DISTINCT ON`,
+        `/* DISTINCT ON */ SELECT v.patient_id, v.visit_at, v.diagnosis_code FROM visits v
+JOIN (SELECT patient_id, max(visit_at) AS mx FROM visits GROUP BY patient_id) m ON m.patient_id = v.patient_id AND m.mx = v.visit_at`,
+        `SELECT DISTINCT ON (patient_id) patient_id, visit_at, diagnosis_code FROM visits ORDER BY patient_id, visit_at DESC`,
+        `SELECT v.patient_id AS "distinct on", v.visit_at, v.diagnosis_code FROM visits v
+JOIN (SELECT patient_id, max(visit_at) AS mx FROM visits GROUP BY patient_id) m ON m.patient_id = v.patient_id AND m.mx = v.visit_at`,
+        `SELECT v.patient_id, v.visit_at, v.diagnosis_code /* x /* y */ DISTINCT ON */ FROM visits v
+JOIN (SELECT patient_id, max(visit_at) AS mx FROM visits GROUP BY patient_id) m ON m.patient_id = v.patient_id AND m.mx = v.visit_at`,
+        `SELECT v.patient_id, v.visit_at, v.diagnosis_code FROM visits v
+JOIN (SELECT patient_id, max(visit_at) AS mx FROM visits GROUP BY patient_id) m ON m.patient_id = v.patient_id AND m.mx = v.visit_at
+WHERE $$distinct on$$ <> ''`,
       ],
     },
   },
@@ -1749,8 +2313,8 @@ WHERE rn = 1`,
     explanation:
       'row_number() numbers the rows of each partition in the window’s order, so rn = 1 is the latest visit per ' +
       'patient. The filter must go in an outer query because window functions run after WHERE. PARTITION BY patient_id ' +
-      'restarts the numbering for each patient; without it you get one row for the whole clinic. rank() would return ' +
-      'two rows for a patient with two visits at the same latest time, which the tie-breaker rules out.',
+      'restarts the numbering for each patient; without it you get one row for the whole clinic. rank() ordered by ' +
+      'visit_at alone would return two rows for a patient with two visits at the same latest time; the id tie-breaker rules that out.',
     grader: {
       kind: 'result',
       reference: `SELECT patient_id, visit_at, diagnosis_code
@@ -1761,6 +2325,7 @@ FROM (
 ) ranked
 WHERE rn = 1`,
       ordered: false,
+      setup: LATEST_SETUP,
       requires: [WINDOW],
       forbids: [NO_DISTINCT_ON, NO_LATERAL],
     },
@@ -1775,6 +2340,9 @@ SELECT patient_id, visit_at, diagnosis_code FROM ranked WHERE rn = 1`,
          first_value(id) OVER (PARTITION BY patient_id ORDER BY visit_at DESC, id DESC) AS latest_id
   FROM visits) x
 WHERE id = latest_id`,
+        `SELECT DISTINCT patient_id, last_value(visit_at) OVER w, last_value(diagnosis_code) OVER w FROM visits
+WINDOW w AS (PARTITION BY patient_id ORDER BY visit_at, id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)`,
+        `select patient_id, visit_at, diagnosis_code from (select *, rank() over (partition by patient_id order by visit_at desc, id desc) r from visits) x where r = 1`,
       ],
       mustFail: [
         `SELECT patient_id, visit_at, diagnosis_code FROM (
@@ -1785,6 +2353,16 @@ WHERE rn = 1`,
 WHERE rn = 1`,
         `SELECT DISTINCT ON (patient_id) patient_id, visit_at, diagnosis_code FROM visits
 ORDER BY patient_id, visit_at DESC, id DESC`,
+        `SELECT DISTINCT patient_id, last_value(visit_at) OVER w, last_value(diagnosis_code) OVER w FROM visits
+WINDOW w AS (PARTITION BY patient_id ORDER BY visit_at, id)`,
+        `SELECT patient_id, visit_at, diagnosis_code FROM visits
+WHERE row_number() OVER (PARTITION BY patient_id ORDER BY visit_at DESC, id DESC) = 1`,
+        `SELECT v.patient_id, v.visit_at, v.diagnosis_code FROM visits v
+JOIN (SELECT patient_id, max(visit_at) AS mx FROM visits GROUP BY patient_id) m ON m.patient_id = v.patient_id AND m.mx = v.visit_at -- OVER`,
+        `SELECT patient_id, visit_at, diagnosis_code FROM (
+  SELECT v.*, row_number() OVER (PARTITION BY patient_id ORDER BY visit_at DESC) AS rn FROM visits v) x WHERE rn = 1`,
+        `SELECT patient_id, visit_at, diagnosis_code FROM (
+  SELECT v.*, max(visit_at) OVER (PARTITION BY patient_id) AS mx FROM visits v) x WHERE visit_at = mx`,
       ],
     },
   },
@@ -1795,7 +2373,7 @@ ORDER BY patient_id, visit_at DESC, id DESC`,
     prompt:
       `${LATEST_PROMPT} Write it with a LATERAL join, without DISTINCT ON or window functions. ` +
       'visits has no index on patient_id, so first run CREATE INDEX ON visits (patient_id, visit_at DESC, id DESC); ' +
-      'without it this version reads every visit once per patient, which takes minutes on the standard dataset. ' +
+      'without it this version reads every visit once per patient, which took about 5 minutes on the standard dataset when we timed it (PGlite in Node; a phone is slower). ' +
       '(The grader builds the same index, inside its rolled-back transaction, while it checks your answer.)',
     hints: [
       'For each patient, a small subquery can fetch that patient’s single latest visit. LATERAL lets it refer to the patient row.',
@@ -1806,8 +2384,8 @@ ORDER BY patient_id, visit_at DESC, id DESC`,
       'patient" becomes ORDER BY … LIMIT 1. CROSS JOIN LATERAL drops patients with no visits, as the task asks; ' +
       'LEFT JOIN LATERAL … ON true would keep them with NULLs. Speed depends on indexes: without one, each of those ' +
       'subqueries reads the whole visits table, so the standard dataset means 10,000 full scans of 100,000 rows. With ' +
-      'an index on (patient_id, visit_at DESC, id DESC) each lookup is a short index probe, and all three versions ' +
-      'take a similar, short time. DISTINCT ON and the window version need no index because they sort visits once. ' +
+      'an index on (patient_id, visit_at DESC, id DESC) each lookup is a short index probe: in our timing all three versions ' +
+      'then took under a second on the standard dataset. DISTINCT ON and the window version need no index because they sort visits once. ' +
       'Time all three yourself, with and without the index; Module 3 explains the plans behind the numbers.',
     grader: {
       kind: 'result',
@@ -1824,6 +2402,7 @@ CROSS JOIN LATERAL (
   LIMIT 1
 ) l`,
       ordered: false,
+      setup: LATEST_SETUP,
       requires: [LATERAL],
       forbids: [NO_DISTINCT_ON, NO_WINDOW],
     },
@@ -1837,6 +2416,12 @@ JOIN LATERAL (SELECT visit_at, diagnosis_code FROM visits WHERE patient_id = p.i
 FROM (SELECT DISTINCT patient_id FROM visits) ids,
 LATERAL (SELECT visit_at, diagnosis_code FROM visits v WHERE v.patient_id = ids.patient_id
          ORDER BY v.visit_at DESC, v.id DESC FETCH FIRST 1 ROW ONLY) l`,
+        `select p.id, l.visit_at, l.diagnosis_code from patients p
+left join lateral (select visit_at, diagnosis_code from visits v where v.patient_id = p.id order by visit_at desc, id desc limit 1) l on true
+where l.visit_at is not null`,
+        `SELECT p.id, l.visit_at, l.diagnosis_code FROM patients p, LATERAL (
+  SELECT v.visit_at, v.diagnosis_code FROM visits v WHERE v.patient_id = p.id
+  AND NOT EXISTS (SELECT 1 FROM visits w WHERE w.patient_id = v.patient_id AND (w.visit_at, w.id) > (v.visit_at, v.id))) l`,
       ],
       mustFail: [
         `SELECT p.id, l.visit_at, l.diagnosis_code FROM patients p
@@ -1847,6 +2432,14 @@ CROSS JOIN LATERAL (SELECT visit_at, diagnosis_code FROM visits v ORDER BY visit
 CROSS JOIN LATERAL (SELECT visit_at, diagnosis_code FROM visits v WHERE v.patient_id = p.id ORDER BY id DESC LIMIT 1) l`,
         `SELECT DISTINCT ON (patient_id) patient_id, visit_at, diagnosis_code FROM visits
 ORDER BY patient_id, visit_at DESC, id DESC`,
+        `SELECT p.id, l.visit_at, l.diagnosis_code FROM patients p
+CROSS JOIN LATERAL (SELECT visit_at, diagnosis_code FROM visits v WHERE v.patient_id = p.id ORDER BY visit_at DESC, id DESC LIMIT 2) l`,
+        `SELECT v.patient_id, v.visit_at, v.diagnosis_code FROM visits v
+JOIN (SELECT patient_id, max(visit_at) AS mx FROM visits GROUP BY patient_id) m ON m.patient_id = v.patient_id AND m.mx = v.visit_at /* LATERAL */`,
+        `SELECT p.id, l.visit_at, l.diagnosis_code FROM patients p
+LEFT JOIN LATERAL (SELECT visit_at, diagnosis_code FROM visits v WHERE v.patient_id = p.id ORDER BY visit_at DESC, id DESC LIMIT 1) l ON true`,
+        `SELECT v.patient_id AS "lateral", v.visit_at, v.diagnosis_code FROM visits v
+JOIN (SELECT patient_id, max(visit_at) AS mx FROM visits GROUP BY patient_id) m ON m.patient_id = v.patient_id AND m.mx = v.visit_at`,
       ],
     },
   },

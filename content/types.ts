@@ -50,6 +50,12 @@ export interface ResultGrader {
   requires?: SqlPattern[]
   /** Shapes the answer must not use. */
   forbids?: SqlPattern[]
+  /**
+   * SQL run inside the grading transaction before both queries: a few extra rows for cases the
+   * generated data lacks (ties, patients with no visits, a longer referral chain). Shown to the
+   * learner under the challenge; rolled back afterwards.
+   */
+  setup?: string
 }
 
 export interface Challenge {

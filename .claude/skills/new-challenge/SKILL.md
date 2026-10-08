@@ -60,5 +60,11 @@ then the learner's SQL, inside a transaction it always rolls back.
 - The reference solution passes its own grader (content tests run this automatically).
 - At least 2 `mustPass` alternatives written differently from the reference.
 - At least 3 `mustFail` plausible wrong answers: the mistakes a learner really makes.
-- Run `npx vitest run content/modules.test.ts`, then ask the `grader-breaker` agent to attack it.
+- If a mistake the task warns about cannot show on the generated data (a tie, a patient with no
+  visits, a visit just after midnight Kampala time on a boundary day, a visit away from the patient's
+  home facility, a longer referral chain), add the case with `grader.setup`, built with the helpers in
+  `content/datasets/testRows.ts`. The grader runs it inside its rolled-back transaction before both
+  queries, and the learner sees it under the challenge. Then add the mistake as a `mustFail`.
+- Run `npx vitest run content/modules.test.ts`, and again with `CONTENT_SIZE=standard` (CI runs
+  both: learners use standard). Then ask the `grader-breaker` agent to attack it.
 - Never weaken or delete a test to make it pass; fix the grader or the task wording.

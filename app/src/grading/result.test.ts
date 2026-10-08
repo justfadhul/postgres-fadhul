@@ -18,6 +18,19 @@ describe('stripSql', () => {
   it('removes comments and string contents', () => {
     expect(stripSql(`select 'distinct on' -- distinct on\n/* over */ from t`)).not.toMatch(/distinct on|over/i)
   })
+  it('removes quoted identifiers, dollar quotes and nested comments', () => {
+    expect(stripSql(`select 1 as "distinct on"`)).not.toMatch(/distinct/i)
+    expect(stripSql(`select $$lateral$$, $q$ over $q$`)).not.toMatch(/lateral|over/i)
+    expect(stripSql(`select 1 /* a /* lateral */ over */ from t`)).toBe('select 1   from t')
+    expect(stripSql(`select E'it\\'s over' from t`)).not.toMatch(/over/i)
+  })
+  it('does not treat -- or /* inside a string as a comment', () => {
+    expect(stripSql(`select * from v where t <> '--' and row_number() over ()`)).toMatch(/over/)
+    expect(stripSql(`select '/*' , lateral, '*/'`)).toMatch(/lateral/)
+  })
+  it('keeps the SQL around a dollar sign that is not a quote', () => {
+    expect(stripSql(`select $1, a$b over`)).toMatch(/over/)
+  })
 })
 
 describe('normaliseValue', () => {
@@ -36,6 +49,10 @@ describe('compareResults', () => {
     expect(compareResults(r([['1'], ['2']]), r([['2'], ['1']]), false)).toEqual([])
     expect(compareResults(r([['1'], ['2']]), r([['2'], ['1']]), true)[0]).toMatch(/Row 1 differs/)
   })
+  it('names a column whose type is wrong', () => {
+    const text = { fields: [{ name: 'a', dataTypeID: 25 }], rows: [['15.4']], totalRows: 1 }
+    expect(compareResults({ ...r([['15.4']]), fields: [{ name: 'a', dataTypeID: 1700 }] }, text, false)[0]).toMatch(/Column 1 \(a\) should be a number/)
+  })
   it('counts duplicates', () => {
     expect(compareResults(r([['1'], ['1']]), r([['1']]), false).join(' ')).toMatch(/Expected 2 rows.*Missing 1/)
   })
@@ -51,6 +68,19 @@ describe('gradeResult', () => {
     const rep = await gradeResult(db.session, `select visit_type, count(distinct patient_id) from clinic.visits group by visit_type`, visitsPerType)
     expect(rep.pass).toBe(false)
     expect(rep.messages.join(' ')).toMatch(/Missing/)
+  })
+  it('runs the setup rows for both queries, then rolls them back', async () => {
+    const withSetup = {
+      ...visitsPerType,
+      setup: `INSERT INTO clinic.visits SELECT -1, patient_id, facility_id, clinician_id, visit_at, 'emergency', NULL FROM clinic.visits LIMIT 1`,
+    }
+    const plain = await gradeResult(db.session, visitsPerType.reference, visitsPerType)
+    const rep = await gradeResult(db.session, `select visit_type, count(*) from clinic.visits group by 1`, withSetup)
+    expect(rep.pass).toBe(true)
+    const em = (r?: { rows: (string | null)[][] }) => r?.rows.find((x) => x[0] === 'emergency')?.[1]
+    expect(Number(em(rep.expected))).toBe(Number(em(plain.expected)) + 1)
+    const after = await db.session.run(`select count(*) from clinic.visits where id = -1`)
+    expect(after.results[0]?.rows[0]?.[0]).toBe('0')
   })
   it('reports PostgreSQL errors with the SQLSTATE', async () => {
     const rep = await gradeResult(db.session, `select visit_typo from clinic.visits`, visitsPerType)

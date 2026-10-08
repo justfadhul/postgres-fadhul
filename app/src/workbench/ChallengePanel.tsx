@@ -41,6 +41,19 @@ export function ChallengePanel({ challenge, position, attempt, grade, nextHref, 
         )}
         <Link href={backHref} className="link" style={{ fontSize: 14 }}>All challenges</Link>
       </div>
+      {challenge.grader.setup && (
+        <details style={{ marginTop: 4 }}>
+          <summary style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center', fontSize: 14, color: muted }}>
+            The grader adds test rows
+          </summary>
+          <p style={{ margin: '0 0 6px', fontSize: 14, color: muted }}>
+            The clinic data lacks some cases this task asks about, so before checking, the grader runs this SQL inside a
+            transaction it rolls back afterwards. Your query must give the right answer with these rows too. Paste it above
+            your query in the workbench to see them; Reset the dataset afterwards, or wrap it all in BEGIN … ROLLBACK.
+          </p>
+          <pre className="scroll-x" style={{ margin: 0, fontSize: 13 }}>{challenge.grader.setup.trim()}</pre>
+        </details>
+      )}
 
       {grade && (
         <div role="status" aria-live="polite" style={{ marginTop: 12, padding: '10px 12px', borderLeft: `3px solid ${grade.pass ? (dark ? '#5fd08a' : 'var(--right)') : '#f26b3a'}`, background: dark ? '#1f1f1f' : 'var(--surface)', borderRadius: 4 }}>

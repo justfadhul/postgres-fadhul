@@ -16,12 +16,61 @@ export interface GradeReport {
   expected?: RawResult
 }
 
-/** Removes comments and string literals so patterns only see SQL structure. */
+/**
+ * Removes comments, string literals and quoted identifiers so patterns only see
+ * SQL structure. One pass from left to right, as PostgreSQL's lexer reads it:
+ * a `--` inside a string is not a comment, block comments nest, and dollar
+ * quotes ($$…$$, $tag$…$tag$) and E'…' escapes are understood.
+ */
 export function stripSql(sql: string): string {
-  return sql
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/--[^\n]*/g, ' ')
-    .replace(/'(?:[^']|'')*'/g, "''")
+  let out = ''
+  let i = 0
+  while (i < sql.length) {
+    const c = sql[i]
+    const n = sql[i + 1]
+    if (c === '-' && n === '-') {
+      const end = sql.indexOf('\n', i)
+      i = end < 0 ? sql.length : end
+      out += ' '
+      continue
+    }
+    if (c === '/' && n === '*') {
+      let depth = 1
+      i += 2
+      while (i < sql.length && depth > 0) {
+        if (sql.startsWith('/*', i)) { depth++; i += 2 }
+        else if (sql.startsWith('*/', i)) { depth--; i += 2 }
+        else i++
+      }
+      out += ' '
+      continue
+    }
+    const tag = c === '$' && !/[\w$]/.test(sql[i - 1] ?? '') ? /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i))?.[0] : undefined
+    if (tag) {
+      const end = sql.indexOf(tag, i + tag.length)
+      i = end < 0 ? sql.length : end + tag.length
+      out += "''"
+      continue
+    }
+    if (c === "'" || c === '"') {
+      const escapes = c === "'" && /(^|[^\w])[eE]$/.test(sql.slice(0, i))
+      i++
+      while (i < sql.length) {
+        if (escapes && sql[i] === '\\') { i += 2; continue }
+        if (sql[i] === c) {
+          if (sql[i + 1] === c) { i += 2; continue }
+          i++
+          break
+        }
+        i++
+      }
+      out += c + c
+      continue
+    }
+    out += c
+    i++
+  }
+  return out
 }
 
 const TRANSACTION_CONTROL = /(^|;)\s*(begin|commit|rollback|abort|end|start\s+transaction|savepoint|release)\b/i
@@ -43,6 +92,8 @@ export function normaliseValue(value: string | null, typeId: number): string {
   return `t:${value}`
 }
 
+const isNumeric = (typeId: number | undefined) => NUMERIC_TYPES.has(typeId ?? 25)
+
 function rowKey(row: (string | null)[], fields: RawResult['fields']): string {
   return JSON.stringify(row.map((v, i) => normaliseValue(v, fields[i]?.dataTypeID ?? 25)))
 }
@@ -60,6 +111,16 @@ export function compareResults(expected: RawResult, actual: RawResult, ordered: 
     )
     return problems
   }
+  expected.fields.forEach((f, i) => {
+    const a = actual.fields[i]
+    if (a && isNumeric(f.dataTypeID) !== isNumeric(a.dataTypeID)) {
+      problems.push(
+        isNumeric(f.dataTypeID)
+          ? `Column ${i + 1} (${a.name}) should be a number, but yours is not. Check for a cast to text or to_char.`
+          : `Column ${i + 1} (${a.name}) should not be a number, but yours is. Check the expression in that column.`,
+      )
+    }
+  })
   if (expected.rows.length !== actual.rows.length) {
     problems.push(`Expected ${expected.rows.length} row${expected.rows.length === 1 ? '' : 's'}, but your query returned ${actual.rows.length}.`)
   }
@@ -104,6 +165,15 @@ export async function gradeResult(session: SqlSession, learnerSql: string, grade
   let error: SqlErrorFields | undefined
   await session.exec('BEGIN')
   try {
+    // Extra rows for cases the dataset lacks (ties, patients with no visits…), rolled back with everything else.
+    if (grader.setup) {
+      try {
+        await session.exec(grader.setup)
+      } catch (e) {
+        const f = toErrorFields(e)
+        return { pass: false, messages: [`The grader's test rows could not be added (${f.message}). Has the dataset changed? Reset it from the workbench menu.`] }
+      }
+    }
     // Reference first, so a learner's INSERT or DELETE cannot change the expected answer.
     try {
       expected = lastResultSet(await session.run(grader.reference))
