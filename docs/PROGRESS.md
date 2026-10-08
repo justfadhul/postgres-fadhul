@@ -7,6 +7,68 @@ branch deploys). Per-deployment URLs sit behind Vercel's login, so share only th
 **Repository:** https://github.com/justfadhul/postgres-fadhul (default branch
 `claude/eloquent-cannon-pvvwiw`)
 
+## Added during Milestone 1 at the learner's request
+
+The learner asked for three things while Milestone 1 was waiting for review: the basics before Module 1,
+highlighting and comments while reading, and the same progress on phone and computer. PLAN.md records
+them as deviations 10 to 12.
+
+### Module 0, Foundations
+
+- 7 lessons: the big picture and a map of the course; tables, rows and keys; SELECT; WHERE; types and
+  values; counting and summarising; changing data safely with transactions. 60 runnable SQL blocks (12
+  state their error code, 21 their row count, and the tests hold them to it), 23 quick checks (17
+  verified against PostgreSQL).
+- "Basics practice": 12 graded queries. 86 alternative correct answers pass and 179 plausible wrong
+  answers fail, on the small, standard and large datasets. Ordered tasks require ORDER BY.
+- **fact-checker:** 5 wrong claims (7 places) and 17 unclear ones, all fixed (commit 089191d). Among
+  them: RETURNING on DELETE shows the removed rows; information_schema is views; "run it again"
+  instructions now say to open the block in the workbench; the workbench sends a batch as one
+  transaction (psql does not). Quoted error messages re-run and match PostgreSQL.
+- **grader-breaker:** wrong answers got through in 7 of 12 challenges (no tie-break, AND/OR
+  precedence, `count(DISTINCT …)`, rounding slips that only show on one dataset size). Fixed with test
+  rows; each tie-sensitive case graded 150 times on every size with no change of verdict.
+- Remaining: in a08, an answer without the drug tie-break still has about a 1 in 24 chance of coming
+  out right, because PostgreSQL's sort is not stable. a10's test rows are tuned to the current data
+  generator; if the generator changes, its tests fail in CI and show it.
+
+### Reading
+
+- Select text in a lesson to highlight it (yellow, green, pink) or comment on it; tap a highlight to
+  edit or delete it. Painted with the CSS Custom Highlight API (iOS Safari 17.2 and later) and found
+  again from the quoted text, so they survive re-renders and small lesson edits.
+- Highlights page (bottom tab): all highlights and comments by lesson, search, comments only, share or
+  download as Markdown, tap to return to the place.
+- Aa in each lesson: contents, text size (four steps), sans or serif. "Continue where you stopped" when
+  reopening a lesson.
+
+### Phone and computer
+
+- The learner chose to stay serverless (no account, no backend) over automatic sync through their own
+  GitHub. Settings: **Send to my other device** shares a progress file (AirDrop, Messages, iCloud
+  Drive; a download on a computer); **Add progress from a file** merges it. Done lessons stay done,
+  passed challenges stay passed, the newer answer, draft or highlight wins, study time is never double
+  counted, deleted highlights stay deleted, and repeating a merge changes nothing. Replacing
+  everything is still there, for restoring a backup exactly.
+- e2e: two separate browsers exchange progress in both directions.
+
+### Evidence
+
+- CI runs [37758884140](https://github.com/justfadhul/postgres-fadhul/actions/runs/37758884140) and
+  [37762693738](https://github.com/justfadhul/postgres-fadhul/actions/runs/37762693738): check and e2e
+  green, including WebKit at iPhone sizes (390 and 360 px), desktop Chromium and 360 px Chromium.
+- First-load JavaScript 129 KB gzipped (budget 150 KB). Module content (checks and challenges) is part
+  of the first load; with more modules this will need to load lazily.
+
+### Check by hand on the iPhone (in addition to the list below)
+
+1. In a lesson, select a few words: does the highlight bar appear below the selection, clear of
+   Safari's own Copy menu? Highlight, comment, then tap the highlight to edit it.
+2. Aa: change the text size and font; jump to a section.
+3. Settings, **Send to my other device**: does AirDrop or Messages offer the file? On the computer,
+   **Add progress from a file**, then send back the other way.
+4. Start with Module 0, lesson 0.1.
+
 ## Milestone 1: Module 1 end to end (built, stopped for the learner's iPhone test)
 
 ### Done
