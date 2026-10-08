@@ -209,7 +209,10 @@ img, svg { flex: none; }
 }
 
 /* Lesson prose */
-.prose { font-size: 17px; line-height: 1.65; }
+.prose { font-size: calc(17px * var(--rs, 1)); line-height: 1.65; }
+.prose[data-font="serif"] { font-family: var(--serif); }
+.prose[data-font="sans"] { font-family: var(--sans); }
+.prose h2 { scroll-margin-top: 16px; }
 .prose p, .prose li { margin: 0 0 16px; }
 .prose ul, .prose ol { padding-left: 22px; margin: 0 0 16px; }
 .prose h2 { font-family: var(--display); font-weight: 800; font-stretch: condensed; text-transform: uppercase; letter-spacing: -0.01em; line-height: 0.95; font-size: 30px; margin: 36px 0 14px; }
@@ -220,7 +223,7 @@ img, svg { flex: none; }
 .prose blockquote { margin: 0 0 16px; padding-left: 14px; border-left: 3px solid var(--hair); color: var(--muted); }
 .prose table { border-collapse: collapse; font-size: 15px; margin: 0 0 16px; }
 .prose th, .prose td { padding: 6px 14px 6px 0; border-bottom: 1px solid var(--hair); text-align: left; }
-.prose-wide { font-family: var(--serif); font-size: 20px; line-height: 1.7; }
+.prose-wide { font-family: var(--serif); font-size: calc(20px * var(--rs, 1)); line-height: 1.7; }
 .prose-wide h2 { font-size: 44px; margin: 48px 0 18px; }
 .prose-wide h3, .prose-wide table { font-family: var(--sans); }
 
@@ -247,3 +250,39 @@ img, svg { flex: none; }
 @media (max-width: 959px) {
   html { scroll-padding-bottom: 120px; }
 }
+
+/* ---------- Reading: highlights, comments, sheets ---------- */
+::highlight(dsm-yellow) { background-color: rgb(255 204 0 / 0.45); }
+::highlight(dsm-green) { background-color: rgb(52 199 89 / 0.32); }
+::highlight(dsm-pink) { background-color: rgb(255 55 95 / 0.26); }
+::highlight(dsm-note) { text-decoration: underline 2px; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+.swatch { display: inline-block; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--hair); }
+.selection-bar {
+  position: fixed; z-index: 60; display: flex; align-items: center; gap: 2px; padding: 4px;
+  background: var(--ink); color: var(--bg); border-radius: var(--r); box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+}
+.selection-bar button { min-width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; color: inherit; cursor: pointer; border-radius: var(--r-sm); }
+.selection-bar .selection-bar-comment { flex: 1; font-weight: 700; font-size: 15px; padding: 0 10px; border-left: 1px solid rgb(127 127 127 / 0.4); border-radius: 0; }
+.input { padding: 10px 12px; border: 1px solid var(--hair); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); min-height: 44px; }
+dialog.sheet {
+  margin: auto auto 0; width: min(600px, 100%); max-width: 100%; max-height: 85dvh; overflow: auto;
+  border: 0; border-radius: var(--r) var(--r) 0 0; padding: 18px 16px calc(env(safe-area-inset-bottom) + 16px);
+  background: var(--bg); color: var(--ink); box-shadow: 0 -8px 30px rgb(0 0 0 / 0.2);
+}
+dialog.sheet::backdrop { background: rgb(0 0 0 / 0.35); }
+@media (min-width: 960px) { dialog.sheet { margin: auto; border-radius: var(--r); padding: 24px; } }
+.sheet-quote {
+  margin: 10px 0 12px; padding-left: 12px; border-left: 3px solid var(--accent); font-family: var(--serif); font-size: 17px; line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
+}
+.segmented { display: flex; border: 1px solid var(--hair); border-radius: var(--r-sm); overflow: hidden; }
+.segmented button { flex: 1; min-height: 44px; background: none; border: 0; border-left: 1px solid var(--hair); cursor: pointer; font-weight: 600; }
+.segmented button:first-child { border-left: 0; }
+.segmented button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.resume-pill {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom) + 84px); z-index: 40;
+  display: flex; align-items: center; gap: 4px; padding: 0 6px 0 16px; min-height: 48px; border-radius: 999px;
+  background: var(--ink); color: var(--bg); box-shadow: 0 6px 20px rgb(0 0 0 / 0.25); font-weight: 600; font-size: 15px; white-space: nowrap;
+}
+.resume-pill button { min-height: 44px; min-width: 44px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+@media (min-width: 960px) { .resume-pill { bottom: 32px; } }

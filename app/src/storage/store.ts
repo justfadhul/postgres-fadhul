@@ -2,7 +2,7 @@
 // can be lost (Safari may clear a site that has not been used for a while), so
 // everything can be exported to a JSON file and imported again.
 
-export const STORES = ['progress', 'answers', 'attempts', 'drafts', 'activity', 'settings'] as const
+export const STORES = ['progress', 'answers', 'attempts', 'drafts', 'activity', 'settings', 'annotations'] as const
 export type StoreName = (typeof STORES)[number]
 
 export interface ProgressRecord {
@@ -27,6 +27,21 @@ export interface DraftRecord {
 export interface ActivityRecord {
   seconds: number
 }
+export type HighlightColour = 'yellow' | 'green' | 'pink'
+/** A highlight in a lesson, found again by its quoted text and a little context either side. */
+export interface AnnotationRecord {
+  lessonId: string
+  quote: string
+  prefix: string
+  suffix: string
+  colour: HighlightColour
+  /** The learner's comment; empty for a plain highlight. */
+  note: string
+  at: string
+  updatedAt: string
+  /** Deleted highlights stay as markers, so merging with another device does not bring them back. */
+  deleted?: boolean
+}
 
 export interface ExportFile {
   app: 'data-systems-mastery'
@@ -36,7 +51,8 @@ export interface ExportFile {
 }
 
 const DB_NAME = 'dsm-state'
-const DB_VERSION = 1
+// Version 2 added the annotations store; the upgrade only creates missing stores, so data is kept.
+const DB_VERSION = 2
 let dbPromise: Promise<IDBDatabase> | null = null
 
 function open(): Promise<IDBDatabase> {
@@ -162,6 +178,32 @@ export async function importAll(data: unknown): Promise<Record<StoreName, number
   await done(tx)
   for (const name of STORES) notify(name)
   return counts
+}
+
+/**
+ * Adds another device's progress to this one instead of replacing it (see merge.ts for the
+ * rules). Returns how many records changed in each store.
+ */
+export async function mergeImport(data: unknown): Promise<Record<StoreName, number>> {
+  const file = validateExport(data)
+  const { mergeStore } = await import('./merge')
+  const mine = Object.fromEntries(await Promise.all(STORES.map(async (s) => [s, await all(s)] as const))) as Record<StoreName, Record<string, unknown>>
+  const db = await open()
+  const tx = db.transaction([...STORES], 'readwrite')
+  const changed = {} as Record<StoreName, number>
+  for (const name of STORES) {
+    const merged = mergeStore(name, mine[name], file.stores[name] ?? {})
+    const os = tx.objectStore(name)
+    changed[name] = 0
+    for (const [k, v] of Object.entries(merged)) {
+      if (JSON.stringify(v) === JSON.stringify(mine[name][k])) continue
+      os.put(v, k)
+      changed[name]++
+    }
+  }
+  await done(tx)
+  for (const name of STORES) notify(name)
+  return changed
 }
 
 /** The local calendar date, used as the key for study time. */

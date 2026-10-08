@@ -41,3 +41,16 @@ describe('store', () => {
     expect(todayKey(new Date(2026, 9, 8, 23, 59))).toBe('2026-10-08')
   })
 })
+
+describe('merge import', () => {
+  it('adds the other device progress without losing this one', async () => {
+    const { mergeImport } = await import('./store')
+    await put('progress', 'm01-l03', { status: 'done', updatedAt: '2026-10-02T00:00:00Z' })
+    const file = await exportAll()
+    file.stores.progress = { 'm01-l03': { status: 'started', updatedAt: '2026-10-09T00:00:00Z' }, 'm01-l04': { status: 'done', updatedAt: '2026-10-09T00:00:00Z' } }
+    const changed = await mergeImport(JSON.parse(JSON.stringify(file)))
+    expect(changed.progress).toBe(2)
+    expect(await get('progress', 'm01-l03')).toEqual({ status: 'done', updatedAt: '2026-10-09T00:00:00Z' })
+    expect(await get('progress', 'm01-l04')).toEqual({ status: 'done', updatedAt: '2026-10-09T00:00:00Z' })
+  })
+})

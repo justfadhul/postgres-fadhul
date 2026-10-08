@@ -1,10 +1,12 @@
-import { isValidElement, useEffect, useState, type ComponentType, type ReactElement, type ReactNode } from 'react'
+import { isValidElement, useEffect, useRef, useState, type CSSProperties, type ComponentType, type ReactElement, type ReactNode } from 'react'
 import { Link, useParams } from 'wouter'
 import { TIER_LABEL } from '@content/syllabus'
 import { findLesson, loadLessonBody } from '../course/content'
 import { IconBack } from '../layout/icons'
+import { AnnotationLayer, useLessonAnnotations } from '../lesson/Annotations'
 import { Note } from '../lesson/Note'
 import { QuickCheckCard } from '../lesson/QuickCheckCard'
+import { ReaderOptions, useReadingPrefs } from '../lesson/ReaderOptions'
 import { SqlBlock } from '../lesson/SqlBlock'
 import { useWide } from '../lib/useWide'
 import { useRecord } from '../storage/hooks'
@@ -56,6 +58,29 @@ function LessonPage({ id }: { id: string }) {
   const [failed, setFailed] = useState('')
   const progress = useRecord<ProgressRecord>('progress', id)
   const reading = useReadingProgress()
+  const article = useRef<HTMLElement>(null)
+  const annotations = useLessonAnnotations(id)
+  const { size, font } = useReadingPrefs()
+  const [options, setOptions] = useState(false)
+  const posKey = `readingPos:${id}`
+  const [resumeAt, setResumeAt] = useState<number | null>(null)
+
+  // Offer to continue where the learner stopped last time.
+  useEffect(() => {
+    if (!Body) return
+    let live = true
+    void get<number>('settings', posKey).then((p) => { if (live && p && p > 0.04 && p < 0.97) setResumeAt(p) })
+    return () => { live = false }
+  }, [Body, posKey])
+
+  // Remember the reading position once the learner has scrolled.
+  useEffect(() => {
+    if (!Body || reading < 0.02) return
+    const t = setTimeout(() => void put('settings', posKey, Math.round(reading * 1000) / 1000), 1000)
+    return () => clearTimeout(t)
+  }, [Body, reading, posKey])
+  // The offer to continue goes away as soon as the learner starts reading.
+  const showResume = resumeAt !== null && reading < 0.02
 
   useEffect(() => {
     if (!ref) return
@@ -111,6 +136,29 @@ function LessonPage({ id }: { id: string }) {
   )
 
   const body = failed ? <p role="alert">This lesson could not load: {failed}</p> : Body ? <Body components={components} /> : <p className="muted" aria-busy="true">Loading the lesson…</p>
+  const articleProps = {
+    'data-font': font === 'auto' ? undefined : font,
+    style: { '--rs': size } as CSSProperties,
+  }
+  const readingButton = (
+    <button type="button" className={wide ? 'btn' : 'icon-btn'} aria-label={wide ? undefined : 'Reading options and contents'} onClick={() => setOptions(true)} style={{ fontFamily: 'var(--serif)', fontWeight: 700 }}>
+      Aa{wide && <span style={{ fontFamily: 'var(--sans)', fontWeight: 600 }}>&nbsp;Contents and text</span>}
+    </button>
+  )
+  const extras = (
+    <>
+      <AnnotationLayer lessonId={id} article={article} ready={!!Body} items={annotations} />
+      {options && <ReaderOptions article={article} annotations={annotations} onClose={() => setOptions(false)} />}
+      {showResume && resumeAt !== null && (
+        <div className="resume-pill" role="status">
+          <button type="button" onClick={() => { const max = document.documentElement.scrollHeight - window.innerHeight; window.scrollTo({ top: resumeAt * max }); setResumeAt(null) }}>
+            Continue where you stopped ↓
+          </button>
+          <button type="button" aria-label="Dismiss" onClick={() => setResumeAt(null)}>×</button>
+        </div>
+      )}
+    </>
+  )
 
   if (!wide) {
     return (
@@ -120,11 +168,12 @@ function LessonPage({ id }: { id: string }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 18 }}>
             <Link href="/course" aria-label="Back to the course" className="icon-btn"><IconBack /></Link>
             <span className="chip">{lesson.number} · {lesson.minutes} min</span>
-            <span style={{ width: 44 }} />
+            {readingButton}
           </div>
           <p className="eyebrow">Module {module.number} · {module.title}</p>
           <h1 className="display" style={{ fontSize: 44, margin: '6px 0 18px' }}>{lesson.title}</h1>
-          <article className="prose">{body}</article>
+          <article ref={article} className="prose" {...articleProps}>{body}</article>
+          {extras}
           {footer}
         </div>
       </>
@@ -140,13 +189,15 @@ function LessonPage({ id }: { id: string }) {
           <span className="eyebrow">{lesson.minutes} min read</span>
           <span className="eyebrow">{TIER_LABEL[lesson.tier]}</span>
           {done && <span className="eyebrow" style={{ color: 'var(--right)' }}>Done</span>}
+          <span style={{ marginLeft: 'auto' }}>{readingButton}</span>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 36px', alignItems: 'flex-end', margin: '36px 0 30px', maxWidth: 1000 }}>
           <span className="display" style={{ fontSize: 'clamp(72px, 8vw, 128px)', color: 'var(--accent)' }}>{lesson.number}</span>
           <h1 className="display" style={{ fontSize: 'clamp(72px, 8vw, 128px)', flex: '1 1 480px' }}>{lesson.title}</h1>
         </div>
         <p className="serif" style={{ fontSize: 26, lineHeight: 1.45, margin: '0 0 32px', maxWidth: 680 }}>{lesson.summary}</p>
-        <article className="prose prose-wide" style={{ maxWidth: 680 }}>{body}</article>
+        <article ref={article} className="prose prose-wide" data-font={articleProps['data-font']} style={{ ...articleProps.style, maxWidth: 680 }}>{body}</article>
+        <div style={{ maxWidth: 680 }}>{extras}</div>
         <div style={{ maxWidth: 1000 }}>{footer}</div>
       </div>
     </>

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { noHorizontalScroll, tapTargetsAtLeast44 } from './helpers'
 
-const ROUTES = ['#/', '#/course', '#/lesson/m01-l01', '#/lesson/m01-l05', '#/assignment/m01-sql-fluency', '#/settings', '#/resources']
+const ROUTES = ['#/', '#/course', '#/lesson/m01-l01', '#/lesson/m01-l05', '#/assignment/m01-sql-fluency', '#/highlights', '#/settings', '#/resources']
 
 test('every screen fits the width, with large tap targets', async ({ page }) => {
   for (const r of ROUTES) {
@@ -67,16 +67,47 @@ test('the shell and lessons work offline after the first visit', async ({ page, 
   await context.setOffline(false)
 })
 
-test('progress exports and imports', async ({ page }) => {
-  await page.goto('./#/lesson/m01-l02')
-  await page.getByRole('button', { name: 'Mark this lesson done' }).click()
-  await page.goto('./#/settings')
-  const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Download export file' }).click()
-  const download = await downloadPromise
-  const path = await download.path()
-  expect(download.suggestedFilename()).toMatch(/^dsm-progress-\d{4}-\d{2}-\d{2}\.json$/)
-  page.on('dialog', (d) => void d.accept())
-  await page.locator('input[type=file]').setInputFiles(path)
-  await expect(page.getByRole('status')).toContainText('Imported: 1 lesson records')
+test('progress moves between two devices without losing either side', async ({ browser, baseURL }, info) => {
+  // Two separate browsers stand in for the phone and the computer. No share sheet, so the file downloads.
+  const device = async () => {
+    const ctx = await browser.newContext({ ...info.project.use, baseURL })
+    await ctx.addInitScript(() => { Object.defineProperty(navigator, 'share', { value: undefined }); Object.defineProperty(navigator, 'canShare', { value: undefined }) })
+    return ctx.newPage()
+  }
+  const phone = await device()
+  const computer = await device()
+  const send = async (page: typeof phone) => {
+    await page.goto('./#/settings')
+    const dl = page.waitForEvent('download')
+    await page.getByRole('button', { name: /Send to my other device|Save a progress file/ }).click()
+    const file = await dl
+    expect(file.suggestedFilename()).toMatch(/^dsm-progress-\d{4}-\d{2}-\d{2}\.json$/)
+    return file.path()
+  }
+
+  await phone.goto('./#/lesson/m01-l02')
+  await phone.getByRole('button', { name: 'Mark this lesson done' }).click()
+  await computer.goto('./#/lesson/m01-l03')
+  await computer.getByRole('button', { name: 'Mark this lesson done' }).click()
+
+  // Phone to computer: the computer gains lesson 1.2 and keeps 1.3.
+  const fromPhone = await send(phone)
+  await computer.goto('./#/settings')
+  await computer.getByLabel('Choose a progress file to add').setInputFiles(fromPhone)
+  await expect(computer.getByRole('status')).toContainText('Added from the file: 1 lesson')
+  // Computer to phone: now both have both.
+  const fromComputer = await send(computer)
+  await phone.goto('./#/settings')
+  await phone.getByLabel('Choose a progress file to add').setInputFiles(fromComputer)
+  await expect(phone.getByRole('status')).toContainText('Added from the file: 1 lesson')
+  // Sending the same file again changes nothing.
+  await phone.getByLabel('Choose a progress file to add').setInputFiles(fromComputer)
+  await expect(phone.getByRole('status')).toContainText('already had everything')
+
+  // Restoring a backup exactly still works.
+  phone.on('dialog', (d) => void d.accept())
+  await phone.getByLabel("Choose an export file to replace this device's progress").setInputFiles(fromPhone)
+  await expect(phone.getByRole('status')).toContainText('Imported: 1 lesson records')
+  await phone.context().close()
+  await computer.context().close()
 })

@@ -5,7 +5,8 @@ import { ENGINE_DOWNLOAD_BYTES, formatMB } from '../db/engineSize'
 import { applyTheme, readTheme, type Theme } from '../lib/theme'
 import { useWide } from '../lib/useWide'
 import { useRecord } from '../storage/hooks'
-import { exportAll, importAll, put } from '../storage/store'
+import { exportAll, importAll, mergeImport, put } from '../storage/store'
+import { saveFile } from '../lib/saveFile'
 import { useEngine } from '../workbench/EngineContext'
 
 function fileName() {
@@ -19,27 +20,27 @@ export function Settings() {
   const [message, setMessage] = useState('')
   const [theme, setTheme] = useState<Theme>(readTheme)
   const fileInput = useRef<HTMLInputElement>(null)
+  const mergeInput = useRef<HTMLInputElement>(null)
 
   async function doExport(share: boolean) {
     const data = await exportAll()
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const file = new File([blob], fileName(), { type: 'application/json' })
-    if (share && navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title: 'Data Systems Mastery progress' })
-      } catch {
-        return // the learner closed the share sheet
-      }
-    } else {
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = file.name
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
-    }
+    if (!(await saveFile(fileName(), JSON.stringify(data, null, 2), 'application/json', share))) return // share sheet closed
     await put('settings', 'lastExportAt', new Date().toISOString())
-    setMessage(`Exported ${file.name}. Keep it somewhere safe, such as iCloud Drive.`)
+    setMessage(`Exported ${fileName()}. Keep it somewhere safe, such as iCloud Drive.`)
+  }
+
+  async function doMerge(f: File) {
+    try {
+      const c = await mergeImport(JSON.parse(await f.text()))
+      const parts = [
+        [c.progress, 'lesson'], [c.answers, 'quick-check answer'], [c.attempts, 'challenge'], [c.annotations, 'highlight'], [c.drafts, 'draft'], [c.activity, 'day of study time'],
+      ].filter(([n]) => (n as number) > 0).map(([n, w]) => `${n} ${w}${n === 1 ? '' : w === 'day of study time' ? '' : 's'}`)
+      setMessage(parts.length
+        ? `Added from the file: ${parts.join(', ')}. Nothing on this device was lost.`
+        : 'This device already had everything in that file.')
+    } catch (e) {
+      setMessage(`Could not add that file: ${(e as Error).message}`)
+    }
   }
 
   async function doImport(f: File) {
@@ -47,7 +48,7 @@ export function Settings() {
       const data = JSON.parse(await f.text())
       if (!window.confirm('Replace the progress on this device with the file? This cannot be undone.')) return
       const counts = await importAll(data)
-      setMessage(`Imported: ${counts.progress} lesson records, ${counts.answers} quick-check answers, ${counts.attempts} challenge attempts.`)
+      setMessage(`Imported: ${counts.progress} lesson records, ${counts.answers} quick-check answers, ${counts.attempts} challenge attempts, ${counts.annotations} highlights.`)
     } catch (e) {
       setMessage(`Import failed: ${(e as Error).message}`)
     }
@@ -59,19 +60,35 @@ export function Settings() {
     <div className={wide ? 'page-wide' : 'page'} style={wide ? { maxWidth: 900 } : undefined}>
       <h1 className="display" style={{ fontSize: wide ? 96 : 48, marginBottom: 24 }}>Settings</h1>
 
-      <Section title="Back up your progress" id="backup">
+      <Section title="Your phone and your computer" id="backup">
         <p>
-          Your progress lives only in this browser. Safari can clear it if the site goes unused for a while, so export a
-          backup after each module. Adding the site to your Home Screen also protects it.
+          Your progress lives in this browser only: there is no account and nothing is sent to a server. To carry on
+          from another device, send it a progress file. Opening the file there <b>adds</b> this device's work to it:
+          lessons done stay done, passed challenges stay passed, and the newer answer or highlight wins. Nothing on
+          either side is lost.
         </p>
-        <p className="muted" style={{ fontSize: 14 }}>{lastExport ? `Last export: ${new Date(lastExport).toLocaleString('en-GB')}` : 'Not exported yet.'}</p>
+        <ol style={{ margin: '0 0 12px', paddingLeft: 20, fontSize: 15 }}>
+          <li>Here, tap <b>Send to my other device</b> (AirDrop, Messages or iCloud Drive on an iPhone; a download on a computer).</li>
+          <li>There, open this site, go to Settings, and tap <b>Add progress from a file</b>.</li>
+          <li>To have the same on both, do it once in each direction.</li>
+        </ol>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-          {canShare && <button type="button" className="btn btn-primary" onClick={() => void doExport(true)}>Export and share…</button>}
-          <button type="button" className={`btn${canShare ? '' : ' btn-primary'}`} onClick={() => void doExport(false)}>Download export file</button>
-          <button type="button" className="btn" onClick={() => fileInput.current?.click()}>Import from file…</button>
-          <input ref={fileInput} type="file" accept="application/json,.json" className="visually-hidden" aria-label="Choose an export file to import" onChange={(e) => { const f = e.target.files?.[0]; if (f) void doImport(f); e.target.value = '' }} />
+          <button type="button" className="btn btn-primary" onClick={() => void doExport(canShare)}>{canShare ? 'Send to my other device…' : 'Save a progress file'}</button>
+          <button type="button" className="btn" onClick={() => mergeInput.current?.click()}>Add progress from a file…</button>
+          <input ref={mergeInput} type="file" accept="application/json,.json" className="visually-hidden" aria-label="Choose a progress file to add" onChange={(e) => { const f = e.target.files?.[0]; if (f) void doMerge(f); e.target.value = '' }} />
         </div>
         {message && <p role="status" className="notice" style={{ marginTop: 14 }}>{message}</p>}
+        <p className="muted" style={{ fontSize: 14, marginTop: 14 }}>
+          The same file is your backup: Safari can clear a site's data if it goes unused for weeks, so keep a recent one
+          somewhere safe, such as iCloud Drive. {lastExport ? `Last saved ${new Date(lastExport).toLocaleString('en-GB')}.` : 'Not saved yet.'}
+        </p>
+        <details className="disclosure">
+          <summary style={{ minHeight: 44, display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>Replace everything with a file</summary>
+          <p style={{ fontSize: 14, margin: '0 0 8px' }}>Wipes this device's progress and uses the file's instead, for restoring a backup exactly.</p>
+          {canShare && <button type="button" className="btn" style={{ marginRight: 10 }} onClick={() => void doExport(false)}>Download a progress file</button>}
+          <button type="button" className="btn" onClick={() => fileInput.current?.click()}>Replace from file…</button>
+          <input ref={fileInput} type="file" accept="application/json,.json" className="visually-hidden" aria-label="Choose an export file to replace this device's progress" onChange={(e) => { const f = e.target.files?.[0]; if (f) void doImport(f); e.target.value = '' }} />
+        </details>
       </Section>
 
       <Section title="Appearance">

@@ -14,6 +14,7 @@ import { EngineProvider } from './workbench/EngineContext'
 const Workbench = lazy(() => import('./pages/Workbench'))
 const Lesson = lazy(() => import('./pages/Lesson'))
 const Spikes = lazy(() => import('./pages/Spikes'))
+const Highlights = lazy(() => import('./pages/Highlights'))
 
 export function App() {
   return (
@@ -29,6 +30,7 @@ export function App() {
               <Route path="/assignment/:id" component={Assignment} />
               <Route path="/workbench" component={Workbench} />
               <Route path="/workbench/:id" component={Workbench} />
+              <Route path="/highlights" component={Highlights} />
               <Route path="/resources" component={Resources} />
               <Route path="/settings" component={Settings} />
               <Route path="/spikes" component={Spikes} />

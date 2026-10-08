@@ -11,4 +11,5 @@ export const IconPlay = () => (<svg width={18} height={18} viewBox="0 0 24 24" f
 export const IconPlan = () => (<svg {...base}><path d="M4 6h10M8 12h12M4 18h8" /></svg>)
 export const IconReset = () => (<svg {...base}><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4" /></svg>)
 export const IconTick = () => (<svg width={12} height={12} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden><path d="m2.5 6.2 2.3 2.3 4.7-5" /></svg>)
+export const IconHighlight = () => (<svg {...base}><path d="m14.5 4.5 5 5L10 19H5v-5z" /><path d="M4 21h16" /></svg>)
 export const IconPanel = () => (<svg {...base} width={20} height={20}><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16" /></svg>)

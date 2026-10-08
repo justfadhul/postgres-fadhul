@@ -2,11 +2,12 @@ import type { ReactNode } from 'react'
 import { Link, useLocation } from 'wouter'
 import { useWide } from '../lib/useWide'
 import { useStudyTimer } from '../lib/activity'
-import { IconCode, IconHome, IconList, IconMore } from './icons'
+import { IconCode, IconHighlight, IconHome, IconList, IconMore } from './icons'
 
 const NAV = [
   { href: '/', label: 'Today', icon: IconHome, match: (p: string) => p === '/' },
   { href: '/course', label: 'Course', icon: IconList, match: (p: string) => p.startsWith('/course') || p.startsWith('/lesson') || p.startsWith('/assignment') },
+  { href: '/highlights', label: 'Highlights', icon: IconHighlight, match: (p: string) => p.startsWith('/highlights') },
   { href: '/workbench', label: 'Workbench', icon: IconCode, match: (p: string) => p.startsWith('/workbench') },
   { href: '/settings', label: 'More', icon: IconMore, match: (p: string) => p.startsWith('/settings') || p.startsWith('/resources') || p.startsWith('/spikes') },
 ]
@@ -14,7 +15,8 @@ const NAV = [
 const WIDE_NAV = [
   { href: '/', label: 'Today', match: NAV[0]!.match },
   { href: '/course', label: 'Course', match: NAV[1]!.match },
-  { href: '/workbench', label: 'Workbench', match: NAV[2]!.match },
+  { href: '/highlights', label: 'Highlights', match: NAV[2]!.match },
+  { href: '/workbench', label: 'Workbench', match: NAV[3]!.match },
   { href: '/resources', label: 'Resources', match: (p: string) => p.startsWith('/resources') },
   { href: '/settings', label: 'Settings', match: (p: string) => p.startsWith('/settings') || p.startsWith('/spikes') },
 ]
