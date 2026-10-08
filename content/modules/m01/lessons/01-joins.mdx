@@ -1,0 +1,162 @@
+A visit record on its own says very little: a patient number, a facility number, a time. To answer
+the questions a clinic manager actually asks ("who came in last night, and where?") you have to
+combine tables. In this lesson you will join visits to patients and facilities, keep rows that have
+no match, find patients who have not been seen, join a table to itself, and learn to spot the most
+common way a join quietly gives the wrong count.
+
+## Inner joins and aliases
+
+A **join** combines rows from two tables wherever a condition you write is true. The usual condition
+is that a foreign key on one side equals the primary key on the other: `visits.patient_id` holds
+the `id` of a row in `patients`, so `p.id = v.patient_id` pairs each visit with its patient.
+
+The plain form, `JOIN … ON …`, is an **inner join**: a row appears in the result only if it found a
+partner on the other side. Joins chain, so you can go from visits to patients and then on to
+facilities in one statement.
+
+```sql
+SELECT v.id, v.visit_at, p.full_name, f.name AS facility
+FROM visits AS v
+JOIN patients AS p ON p.id = v.patient_id
+JOIN facilities AS f ON f.id = v.facility_id
+ORDER BY v.visit_at DESC
+LIMIT 5;
+```
+
+The short names `v`, `p` and `f` are **table aliases**: names you give a table for the length of
+one query. They save typing, but they also matter for correctness. Both `patients` and
+`facilities` have a column called `id`, and so does `visits`; writing `p.id` or `f.id` says exactly
+which one you mean. Get into the habit of prefixing every column with its alias once a query has
+more than one table. The `AS` keyword is optional, and you will see both styles.
+
+<Note term="Foreign key">A column whose values must match the primary key of another table, such as `visits.patient_id` pointing at `patients.id`. PostgreSQL rejects a value with no match.</Note>
+
+## Keeping rows with no partner: LEFT JOIN
+
+An inner join drops a patient who has no matching visit. Often that is what you want; sometimes
+it hides exactly the people you are looking for. A **LEFT JOIN** keeps every row from the table on
+the left of the keyword, whether or not it found a partner. Where there is no partner, the columns
+from the right-hand table come back as NULL (the marker for "no value", covered properly in
+lesson 1.6).
+
+That gives you a neat way to ask "which patients have no visit?". Join, then keep only the rows
+where the right-hand side came back empty. This pattern is called an **anti-join**. Checking the
+right-hand table's primary key for NULL is the safe test, because a primary key is never NULL in a
+real row, so NULL there can only mean "no partner".
+
+In the generated data you may well find that every patient has been seen at some point, so here
+is the more useful clinical version: patients with no visit since 1 January 2025, the people a
+follow-up programme would want to phone.
+
+```sql
+SELECT p.id, p.full_name, p.phone
+FROM patients AS p
+LEFT JOIN visits AS v
+       ON v.patient_id = p.id
+      AND v.visit_at >= '2025-01-01'
+WHERE v.id IS NULL
+ORDER BY p.id
+LIMIT 10;
+```
+
+Look at where the date condition sits: inside `ON`, not in `WHERE`. The `ON` clause decides which
+visits count as a partner, so only 2025 visits can rescue a patient from being "unmatched". The
+`WHERE` clause runs afterwards, on the joined rows. The date literal is read as midnight in the
+session's time zone, Kampala; lesson 1.7 deals with time zones in detail.
+
+<QuickCheck id="m01-qc-01-1" />
+
+## A table joined to itself
+
+Each facility has a `referral_facility_id`: the facility it sends patients to when they need a
+higher level of care. That column points back into `facilities` itself. To show a facility next to
+the one it refers to, join the table to itself. This is a **self-join**, and aliases are what make
+it possible: `f` is the referring facility and `r` is the facility it refers to, two separate roles
+for the same table.
+
+```sql
+SELECT f.name AS facility, f.level,
+       r.name AS refers_to, r.level AS referral_level
+FROM facilities AS f
+LEFT JOIN facilities AS r ON r.id = f.referral_facility_id
+ORDER BY f.id
+LIMIT 10;
+```
+
+The join is a LEFT JOIN on purpose. Facilities at the top of a chain refer to nobody, so their
+`referral_facility_id` is NULL. An inner join would drop them, and a list of facilities with some
+facilities missing is a bug waiting to be found by someone else. Your result shows NULL in the
+`refers_to` column for those rows. Following the chain more than one step at a time needs a
+recursive query, which is lesson 1.4.
+
+<QuickCheck id="m01-qc-01-2" />
+
+## ON or USING
+
+When the two columns you join on have the same name in both tables, you can write
+`USING (column_name)` instead of an `ON` condition. For example, `stock` and `clinicians` both have
+a `facility_id`, so `stock JOIN clinicians USING (facility_id)` is valid, and the shared column
+appears once in the output rather than twice.
+
+In this schema the keys are mostly named `id` on one side and `something_id` on the other, so `ON`
+is what you will write most of the time. Avoid `NATURAL JOIN`, which joins on every column whose
+name happens to match. Between `visits` and `patients` that would be both `id` and `facility_id`,
+so visit number 7 would be paired with patient number 7 whenever their facilities agreed: a query
+that runs and means nothing.
+
+## Common mistake: the join that multiplies rows
+
+A join produces one output row for every matching pair. If one visit has two prescriptions, joining
+visits to prescriptions gives that visit two rows. Nothing is wrong with that, until you count.
+
+Suppose you want to know how many visits at facility 1 in March 2025 led to at least one
+prescription. The obvious query joins and counts rows:
+
+```sql
+SELECT count(*) AS joined_rows,
+       count(DISTINCT v.id) AS visits_with_prescription
+FROM visits AS v
+JOIN prescriptions AS p ON p.visit_id = v.id
+WHERE v.facility_id = 1
+  AND v.visit_at >= '2025-03-01' AND v.visit_at < '2025-04-01';
+```
+
+Run it and compare the two columns. `count(*)` counts joined rows, which means prescription lines,
+so any visit with more than one prescription is counted more than once. `count(DISTINCT v.id)`
+counts each visit once however many rows it produced, which is the number you were asked for.
+Unless no visit that month had two or more prescriptions, the first column is the larger one.
+
+`DISTINCT` fixes a count, but not a sum: if you were adding up a value stored on the visit, every
+repeated row would add it again. The more robust fix is to **aggregate before joining**: reduce the
+prescriptions to one row per visit first, then join that summary. Each visit then meets at most
+one row, so nothing can multiply.
+
+```sql
+SELECT count(*) AS visits,
+       count(rx.visit_id) AS visits_with_prescription,
+       sum(rx.items) AS prescription_items
+FROM visits AS v
+LEFT JOIN (
+  SELECT visit_id, count(*) AS items
+  FROM prescriptions
+  GROUP BY visit_id
+) AS rx ON rx.visit_id = v.id
+WHERE v.facility_id = 1
+  AND v.visit_at >= '2025-03-01' AND v.visit_at < '2025-04-01';
+```
+
+The inner query uses `GROUP BY`, explained in the next lesson; for now, read it as "one row per
+visit, with its number of prescription items". Because the join is a LEFT JOIN, visits with no
+prescription stay in the count of all visits, and `count(rx.visit_id)` skips them since their
+`rx` columns are NULL.
+
+A useful habit: before trusting a total from a joined query, ask "how many rows can one row on the
+left meet on the right?". If the answer is "more than one", every count and sum needs a second look.
+
+<QuickCheck id="m01-qc-01-3" />
+
+## Free sources
+
+- [PostgreSQL tutorial: joins between tables](https://www.postgresql.org/docs/current/tutorial-join.html)
+- [PostgreSQL manual: table expressions, including every join type](https://www.postgresql.org/docs/current/queries-table-expressions.html)
+- [PostgreSQL Exercises](https://pgexercises.com/), whose "Joins and Subqueries" section gives practice on a small club database

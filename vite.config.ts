@@ -1,6 +1,7 @@
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import mdx from '@mdx-js/rollup'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // Vercel serves the site from the domain root. Set BASE_PATH (for example
@@ -24,6 +25,8 @@ export default defineConfig({
     target: ['es2022', 'safari16'],
   },
   plugins: [
+    // Lessons are MDX, compiled at build time; a lesson with broken syntax fails the build.
+    { enforce: 'pre', ...mdx({ jsxImportSource: 'react' }) },
     react(),
     VitePWA({
       registerType: 'autoUpdate',

@@ -1,0 +1,194 @@
+Some questions are built on other questions. "Which stock lines are well below the average?" needs
+the average first. "Which patients came in as emergencies over Christmas?" needs the list of
+emergency visits first. In this lesson you will put one query inside another, test whether related
+rows exist, name the steps of a long query so it reads from top to bottom, and fetch "the latest few
+rows for each patient", a pattern you will use again and again.
+
+## A query inside a query
+
+A **subquery** is a complete `SELECT` written in brackets inside another statement. The simplest
+kind is a **scalar subquery**: one that returns a single value (one row, one column), which you can
+use anywhere a single value would fit.
+
+```sql
+SELECT s.facility_id, d.name, s.quantity_on_hand
+FROM stock AS s
+JOIN drugs AS d ON d.id = s.drug_id
+WHERE s.quantity_on_hand < (SELECT avg(quantity_on_hand) / 4 FROM stock)
+ORDER BY s.quantity_on_hand
+LIMIT 10;
+```
+
+PostgreSQL works out the average once, then compares every stock line with a quarter of it. If a
+scalar subquery finds no rows at all, its value is NULL, not an error.
+
+A subquery can also refer to the row the outer query is currently looking at. That makes it a
+**correlated subquery**: conceptually it runs once for each outer row. Here it counts emergency
+visits for each facility in turn:
+
+```sql
+SELECT f.name,
+       (SELECT count(*)
+        FROM visits AS v
+        WHERE v.facility_id = f.id
+          AND v.visit_type = 'emergency') AS emergency_visits
+FROM facilities AS f
+ORDER BY f.id
+LIMIT 5;
+```
+
+A `GROUP BY` with a join could give the same numbers. The subquery version has one advantage: a
+facility with no emergency visits still appears, with a count of 0, because the outer query lists
+every facility whatever the subquery finds.
+
+<QuickCheck id="m01-qc-03-1" />
+
+## IN, EXISTS and NOT EXISTS
+
+A subquery that returns a column of values can sit after `IN`. The outer row is kept if its value
+appears anywhere in that list.
+
+```sql
+SELECT id, full_name, sex, date_of_birth
+FROM patients
+WHERE id IN (
+  SELECT patient_id
+  FROM visits
+  WHERE visit_type = 'emergency'
+    AND visit_at >= '2025-12-24' AND visit_at < '2025-12-27'
+)
+ORDER BY id
+LIMIT 10;
+```
+
+A patient with three emergency visits over those days still appears once. That is a real difference
+from a join, which would give that patient three rows.
+
+`EXISTS (subquery)` asks a yes-or-no question: does the subquery return at least one row? What the
+rows contain is irrelevant, which is why people write `SELECT 1` inside it. `NOT EXISTS` is the
+reverse. Both are nearly always correlated. Here is the "no visit since 1 January 2025" question
+from lesson 1.1, asked without a join:
+
+```sql
+SELECT p.id, p.full_name
+FROM patients AS p
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM visits AS v
+  WHERE v.patient_id = p.id
+    AND v.visit_at >= '2025-01-01'
+)
+ORDER BY p.id
+LIMIT 10;
+```
+
+This gives the same rows as the LEFT JOIN anti-join, although PostgreSQL does not always plan the
+two the same way. Many people find `NOT EXISTS` easier to read, because it says what it means. You may be
+tempted to write `NOT IN (SELECT …)` instead; it looks equivalent but behaves badly when the list
+contains a NULL. Lesson 1.6 shows exactly how.
+
+<QuickCheck id="m01-qc-03-2" />
+
+## WITH: name the steps
+
+Nested subqueries soon become hard to read, because you have to start in the middle. A **common
+table expression** (CTE) lets you pull each step out, give it a name with `WITH name AS (…)`, and
+then use that name like a table. Steps can build on earlier steps, so the query reads in the order
+you thought of it.
+
+```sql
+WITH emergency_counts AS (
+  SELECT patient_id, count(*) AS emergencies
+  FROM visits
+  WHERE visit_type = 'emergency'
+  GROUP BY patient_id
+),
+frequent AS (
+  SELECT patient_id, emergencies
+  FROM emergency_counts
+  WHERE emergencies >= 5
+)
+SELECT p.id, p.full_name, f.emergencies, fac.name AS home_facility
+FROM frequent AS f
+JOIN patients AS p ON p.id = f.patient_id
+JOIN facilities AS fac ON fac.id = p.facility_id
+ORDER BY f.emergencies DESC, p.id
+LIMIT 10;
+```
+
+Read it as three sentences: count each patient's emergencies; keep those with five or more; show
+their names and home facility. When a result looks wrong, you can test each step on its own by
+selecting from it directly.
+
+Does naming a step cost anything? Before PostgreSQL 12, every CTE was evaluated as a separate step,
+and the planner could not push conditions from the main query into it, which could be slow. Since
+version 12, a plain CTE that is used only once and has no side effects (such as changing data) is
+usually **inlined**: folded into the main query as
+if you had written a subquery, so the planner can optimise across it. You can override this with
+`WITH name AS MATERIALIZED (…)` to force the separate step, or `NOT MATERIALIZED` to ask for
+inlining when the CTE is used more than once. PGlite here is PostgreSQL 18, so the modern rule
+applies; older tutorials that warn "CTEs are an optimisation fence" describe the old behaviour.
+
+<Note term="Inlining">Replacing a named step with its definition inside the main query, so the planner can treat the whole thing as one query.</Note>
+
+## LATERAL: the latest few rows for each patient
+
+A plain subquery in `FROM` is computed on its own: it cannot see the other tables in the same
+`FROM` list. Adding the keyword **LATERAL** lifts that restriction. A lateral subquery may refer to
+columns of tables listed before it, so conceptually it runs once for each of their rows, much like a
+correlated subquery, but it can return several rows and several columns.
+
+That is exactly what "the three most recent visits for each patient" needs. For each patient, sort
+that patient's visits newest first and take three:
+
+```sql
+SELECT p.id, p.full_name, recent.visit_at, recent.visit_type, recent.diagnosis_code
+FROM patients AS p
+JOIN LATERAL (
+  SELECT v.visit_at, v.visit_type, v.diagnosis_code
+  FROM visits AS v
+  WHERE v.patient_id = p.id
+  ORDER BY v.visit_at DESC
+  LIMIT 3
+) AS recent ON true
+WHERE p.id IN (1, 2, 3)
+ORDER BY p.id, recent.visit_at DESC;
+```
+
+Three details matter:
+
+- The inner `WHERE v.patient_id = p.id` is what makes it per patient. Without `LATERAL`, the
+  reference to `p` would be an error.
+- `ON true` is there because a join needs an `ON` clause, and the real matching has already been
+  done inside the subquery.
+- A patient with no visits disappears, as with any inner join. Write `LEFT JOIN LATERAL (…) ON true`
+  to keep them with NULLs.
+
+Change `LIMIT 3` to `LIMIT 1` and you have "each patient's latest visit". The course comes back to
+that question later and compares three ways of answering it; this is one of them.
+
+<QuickCheck id="m01-qc-03-3" />
+
+## Common mistake: a scalar subquery that returns several rows
+
+A scalar subquery must produce at most one row. This one is meant to show a patient's visit date,
+but a patient can have many visits:
+
+```text
+SELECT full_name,
+       (SELECT visit_at FROM visits WHERE visits.patient_id = patients.id) AS visit_at
+FROM patients
+WHERE id = 1;
+```
+
+PostgreSQL stops with SQLSTATE **21000** (`cardinality_violation`): more than one row returned by a
+subquery used as an expression. The fix is to decide which single value you want. For "the latest
+visit", add `ORDER BY visit_at DESC LIMIT 1` inside the brackets, or use `max(visit_at)`; for "all
+of them", use a join or `LATERAL` instead, so that each visit can have its own row. Be wary of
+queries that pass a test only because the test data happens to have one visit per patient.
+
+## Free sources
+
+- [PostgreSQL manual: subquery expressions (EXISTS, IN, ANY, ALL)](https://www.postgresql.org/docs/current/functions-subquery.html)
+- [PostgreSQL manual: WITH queries](https://www.postgresql.org/docs/current/queries-with.html)
+- [PostgreSQL manual: table expressions, including LATERAL](https://www.postgresql.org/docs/current/queries-table-expressions.html)

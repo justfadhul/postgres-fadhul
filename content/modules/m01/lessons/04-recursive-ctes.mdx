@@ -1,0 +1,211 @@
+A health centre III refers to a health centre IV, which refers on to a general hospital. If you
+want to know where a patient from a small clinic ends up, you have to follow that chain step by
+step, and you do not know in advance how many steps there are. In this lesson you will write queries
+that repeat themselves until they run out of rows to follow: walking referral chains, protecting
+against loops, and building calendars so you can find days when nothing was recorded.
+
+## The anatomy of WITH RECURSIVE
+
+A **recursive CTE** is a named step that refers to itself. It always has the same shape:
+
+1. An **anchor**: an ordinary query that produces the starting rows.
+2. `UNION ALL`, joining the anchor to what follows.
+3. A **recursive term**: a query that reads from the CTE's own name and produces the next rows.
+
+PostgreSQL runs the anchor once. Then it runs the recursive term, where the CTE's name means "only
+the rows produced in the previous round", not everything so far. It keeps going round, feeding each
+round's new rows into the next, and **terminates** when a round produces no rows at all. The
+result is every row from every round put together.
+
+Here is facility 1's referral chain, one step per round:
+
+```sql
+WITH RECURSIVE chain AS (
+  SELECT id, name, referral_facility_id, 0 AS depth
+  FROM facilities
+  WHERE id = 1
+  UNION ALL
+  SELECT f.id, f.name, f.referral_facility_id, c.depth + 1
+  FROM facilities AS f
+  JOIN chain AS c ON f.id = c.referral_facility_id
+)
+SELECT depth, id, name
+FROM chain
+ORDER BY depth;
+```
+
+Trace it by hand. The anchor finds facility 1 at depth 0. The first round joins that row to the
+facility it refers to, at depth 1. Each round climbs one level. When a round reaches a facility with
+no `referral_facility_id`, the join finds no partner, that round is empty, and the query stops. The
+`depth` column is a counter you carry along yourself; PostgreSQL does not provide one.
+
+<QuickCheck id="m01-qc-04-1" />
+
+## Every facility's chain, as a path
+
+To do this for all facilities at once, start the anchor from every facility, and carry two extra
+things along: which facility the walk started from, and the **path** so far as an array (a list of
+values in one column, written like `{1,2,3}` in the output). `c.path || f.id` appends one id to the
+array.
+
+```sql
+WITH RECURSIVE chain AS (
+  SELECT id AS start_id,
+         id AS current_id,
+         referral_facility_id AS next_id,
+         ARRAY[id] AS path,
+         0 AS depth
+  FROM facilities
+  UNION ALL
+  SELECT c.start_id, f.id, f.referral_facility_id, c.path || f.id, c.depth + 1
+  FROM chain AS c
+  JOIN facilities AS f ON f.id = c.next_id
+)
+SELECT start_id, path, depth AS steps_to_top
+FROM chain
+WHERE next_id IS NULL
+ORDER BY start_id
+LIMIT 10;
+```
+
+The CTE produces every partial walk; the final `WHERE next_id IS NULL` keeps only the row where each
+walk reached the top. Your result shows one row per facility, with the whole route and the number
+of referral steps it takes.
+
+<Note term="Array">A single value holding an ordered list, such as `ARRAY[1, 2, 3]`. PostgreSQL arrays are numbered from 1.</Note>
+
+## Guarding against loops
+
+Real referral data has mistakes. If someone records that A refers to B, B to C and C back to A, the
+recursive term never runs out of rows, and the query runs until something stops it.
+The clinic data has no such loop, so the examples below build a tiny made-up network in a
+`VALUES` list, with a deliberate cycle 1 to 2 to 3 to 1.
+
+Since PostgreSQL 14 you can add a **CYCLE clause** after the recursive CTE. You name the column
+that identifies a node, and PostgreSQL tracks where the walk has been. When a row would revisit a
+node, it is marked and the walk stops there.
+
+```sql
+WITH RECURSIVE referrals(from_id, to_id) AS (
+  VALUES (1, 2), (2, 3), (3, 1)
+),
+walk(from_id, to_id) AS (
+  SELECT from_id, to_id FROM referrals WHERE from_id = 1
+  UNION ALL
+  SELECT r.from_id, r.to_id
+  FROM referrals AS r
+  JOIN walk AS w ON r.from_id = w.to_id
+) CYCLE from_id SET is_cycle USING path
+SELECT from_id, to_id, is_cycle, path
+FROM walk;
+```
+
+Look at the last row: it is the step that closed the loop, kept in the result with `is_cycle` set to
+true, and nothing follows it. Add `WHERE NOT is_cycle` to the final query if you only want the
+clean steps. PGlite in this course is PostgreSQL 18, so `CYCLE` works here.
+
+On older versions, or if you want to see the mechanism, carry the path yourself and refuse to step
+onto a node already in it. `x <> ALL (array)` is true when `x` differs from every element:
+
+```sql
+WITH RECURSIVE referrals(from_id, to_id) AS (
+  VALUES (1, 2), (2, 3), (3, 1)
+),
+walk AS (
+  SELECT from_id, to_id, ARRAY[from_id] AS path
+  FROM referrals
+  WHERE from_id = 1
+  UNION ALL
+  SELECT r.from_id, r.to_id, w.path || r.from_id
+  FROM referrals AS r
+  JOIN walk AS w ON r.from_id = w.to_id
+  WHERE r.from_id <> ALL (w.path)
+)
+SELECT from_id, to_id, path
+FROM walk;
+```
+
+Here the step that would close the loop is never produced at all. Either way, the walk ends.
+
+## Calendars, and the simpler tool
+
+Recursion is not only for hierarchies. A recursive CTE can count, which means it can build a list
+of dates: start at the first of the month and add one day per round until the last day.
+
+```sql
+WITH RECURSIVE calendar(day) AS (
+  SELECT date '2025-03-01'
+  UNION ALL
+  SELECT day + 1
+  FROM calendar
+  WHERE day < date '2025-03-31'
+)
+SELECT day, to_char(day, 'Dy') AS weekday
+FROM calendar
+ORDER BY day
+LIMIT 7;
+```
+
+It works, but PostgreSQL has a purpose-built tool. `generate_series(start, stop, step)` is a
+**set-returning function**: a function that produces many rows, used in `FROM` as if it were a
+table. It is shorter and clearer, so prefer it for calendars and number sequences, and keep
+recursion for walks whose length depends on the data.
+
+A calendar becomes useful when you left join real data onto it, because the days with no data then
+show up as rows instead of silently being absent. An emergency unit that recorded no emergency
+visit at all on some day deserves a question: was it really quiet, or did the register not get
+entered? This lists those days for facility 3 in March 2025:
+
+```sql
+SELECT cal.day::date AS day, to_char(cal.day, 'Dy') AS weekday
+FROM generate_series(date '2025-03-01', date '2025-03-31', interval '1 day') AS cal(day)
+LEFT JOIN visits AS v
+       ON v.facility_id = 3
+      AND v.visit_type = 'emergency'
+      AND v.visit_at >= cal.day
+      AND v.visit_at < cal.day + interval '1 day'
+WHERE v.id IS NULL
+ORDER BY cal.day;
+```
+
+This is the anti-join from lesson 1.1 with a generated table on the left. Two details. First, given
+dates, `generate_series` returns `timestamp with time zone` values at midnight in the session's time
+zone (Kampala), which is why the visit times are compared with a range from one midnight to the next,
+and why `::date` turns each back into a plain date for display. Second, the result can be empty: on a
+busy facility every day may have at least one emergency. If yours is, try another facility or month.
+
+<QuickCheck id="m01-qc-04-2" />
+
+## Common mistake: a recursion with no way to stop
+
+The recursive term must eventually produce an empty round. Leave out the stopping condition and it
+never does. This calendar has lost its `WHERE`:
+
+```text
+WITH RECURSIVE calendar(day) AS (
+  SELECT date '2025-03-01'
+  UNION ALL
+  SELECT day + 1 FROM calendar
+)
+SELECT day FROM calendar;
+```
+
+Do not run it. Every round produces one new day, so there is always a next round. On a server the
+query keeps going, its result growing all the while, until you cancel it, a timeout stops it or the
+server runs short of space. In this course's browser workbench, PGlite runs your queries one at a
+time on a single connection in a background worker, so a runaway query keeps the database busy and
+you may need to reload the page.
+
+Two habits protect you. While developing a recursive query, carry a `depth` column and add a guard
+such as `WHERE c.depth < 20` to the recursive term; remove it once you trust the data. And for data
+that might contain loops, use `CYCLE` or a path check as shown above. Note that `UNION` instead of
+`UNION ALL` drops a new row only if it is an exact duplicate of one already produced; a row that
+carries a growing `depth` or `path` is never a duplicate, so `UNION` alone does not save you there.
+
+<QuickCheck id="m01-qc-04-3" />
+
+## Free sources
+
+- [PostgreSQL manual: WITH queries, including recursion, SEARCH and CYCLE](https://www.postgresql.org/docs/current/queries-with.html)
+- [PostgreSQL manual: set-returning functions such as generate_series](https://www.postgresql.org/docs/current/functions-srf.html)
+- [PostgreSQL Exercises](https://pgexercises.com/), whose "Recursive Queries" section uses a member-recommends-member chain

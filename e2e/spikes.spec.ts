@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 
 async function resultsJson(page: Page) {
-  await page.locator('details summary', { hasText: 'Raw results' }).click()
+  // The JSON sits in a closed <details>; its text is readable without opening it.
   return JSON.parse((await page.getByTestId('spike-json').textContent()) ?? '{}') as {
     environment: Record<string, unknown>
     results: { id: string; title: string; pass: boolean; ms: number; details: string[] }[]

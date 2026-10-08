@@ -2,11 +2,9 @@ import { Link } from 'wouter'
 
 export function NotFound() {
   return (
-    <>
-      <h1>Page not found</h1>
-      <p>
-        <Link href="/">Back to the course map</Link>
-      </p>
-    </>
+    <div className="page">
+      <h1 className="display" style={{ fontSize: 44 }}>Page not found</h1>
+      <p><Link href="/" className="link">Back to Today</Link></p>
+    </div>
   )
 }

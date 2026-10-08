@@ -64,6 +64,14 @@ export class Engine implements SqlSession {
     return this.#call({ method: 'run', sql, maxRows }) as Promise<RunOutput>
   }
 
+  /** Stops a runaway query by ending the worker. The database reopens from IndexedDB; only the running statement is lost. */
+  terminate(): void {
+    this.#worker.terminate()
+    const err = new Error('Stopped. The query was cancelled and the database is restarting.')
+    for (const p of this.#pending.values()) p.reject(err)
+    this.#pending.clear()
+  }
+
   async close(): Promise<void> {
     await this.#call({ method: 'close' })
     this.#worker.terminate()

@@ -1,0 +1,116 @@
+Some visits in the clinic data have no diagnosis code, and some patients have no phone number. Those gaps are stored as NULL, and NULL follows rules of its own: a report of "malaria" and "not malaria" visits can fail to add up to the total, and a perfectly reasonable query can return no rows at all without any error. In this lesson you will learn those rules, the one trap that hides rows silently, and the tools for handling missing values on purpose.
+
+## What NULL means
+
+**NULL** is a marker that says "no value here": the value is unknown or does not apply. It is not zero and it is not an empty string. A patient whose `phone` is NULL might have no phone, or might have one that nobody recorded; the database cannot tell, and neither can you.
+
+Because the value is unknown, comparing it with anything gives an unknown answer. Is an unknown phone number equal to `'+256 700000000'`? Perhaps. Is it equal to another unknown? Also perhaps. SQL represents "perhaps" with NULL too, so a condition in SQL has three possible results: true, false or unknown. This is **three-valued logic**.
+
+```sql
+SELECT NULL = NULL             AS null_equals_null,
+       1 = NULL                AS one_equals_null,
+       NULL <> 1               AS null_not_one,
+       NULL IS NULL            AS is_null_test,
+       NULL IS DISTINCT FROM 1 AS distinct_test;
+```
+
+The first three columns come back NULL, not true and not false. The last two use operators made for the job and give a definite answer. `IS NULL` and `IS NOT NULL` test whether a value is missing. So `WHERE phone = NULL` never finds anything, while `WHERE phone IS NULL` finds the patients without a recorded number.
+
+<Note term="Three-valued logic">Logic with three truth values: true, false and unknown. In PostgreSQL an unknown boolean is shown as NULL.</Note>
+
+<QuickCheck id="m01-qc-06-1" />
+
+## WHERE keeps only true
+
+`WHERE` keeps a row only when its condition is true. False rows go, and so do unknown rows. That is why counts that look complementary can fail to add up:
+
+```sql
+SELECT count(*)                                                       AS all_visits,
+       count(diagnosis_code)                                          AS with_code,
+       count(*) FILTER (WHERE diagnosis_code = 'B54')                 AS malaria,
+       count(*) FILTER (WHERE diagnosis_code <> 'B54')                AS not_malaria,
+       count(*) FILTER (WHERE diagnosis_code IS DISTINCT FROM 'B54') AS distinct_from_malaria
+FROM visits;
+```
+
+`FILTER (WHERE ...)` limits one aggregate to the rows where its condition is true: the same rule as `WHERE`. Add `malaria` and `not_malaria` from your result: they make `with_code`, not `all_visits`. A visit with no code is neither "B54" nor "not B54"; both conditions are unknown for it, so it falls out of both counts.
+
+`IS DISTINCT FROM` is a comparison that treats NULL as an ordinary value: NULL is distinct from `'B54'` (true), and two NULLs are not distinct from each other. So `malaria` plus `distinct_from_malaria` does equal `all_visits`. Its opposite is `IS NOT DISTINCT FROM`, a NULL-safe "equals".
+
+Notice also `count(diagnosis_code)`: counting a column counts only the rows where it is not NULL, whereas `count(*)` counts rows.
+
+## AND, OR and NOT with unknown
+
+When conditions are combined, a useful rule is: treat unknown as "could be true, could be false". If the answer would be the same either way, you get that answer; otherwise the result is unknown. This query prints every combination:
+
+```sql
+SELECT a, b,
+       a AND b AS a_and_b,
+       a OR b  AS a_or_b,
+       NOT a   AS not_a
+FROM (VALUES (true), (false), (NULL::boolean)) AS x(a)
+CROSS JOIN (VALUES (true), (false), (NULL::boolean)) AS y(b);
+```
+
+Find the rows where one side is NULL. `false AND unknown` is false, because one false side is enough to make AND false. `true OR unknown` is true, because one true side is enough for OR. But `true AND unknown` is unknown, and so is `NOT unknown`: if you do not know whether a patient has a phone, you do not know whether they lack one either.
+
+<QuickCheck id="m01-qc-06-2" />
+
+## Common mistake: NOT IN with a NULL in the list
+
+Suppose you want the facilities that receive no referrals: no other facility lists them as its `referral_facility_id`. Facilities at the top of a referral chain refer to nobody, so their `referral_facility_id` is NULL. The obvious query is this, and it runs without error:
+
+```sql
+SELECT id, name, level
+FROM facilities
+WHERE id NOT IN (SELECT referral_facility_id FROM facilities)
+ORDER BY id;
+```
+
+It returns no rows. Here is why. `id NOT IN (2, 3, NULL)` means `id <> 2 AND id <> 3 AND id <> NULL`. The last part is unknown for every `id`, so the whole condition can be false or unknown but never true. One NULL anywhere in the subquery's result empties the answer.
+
+This is dangerous precisely because nothing complains. The same query may have worked in testing, before the first NULL arrived in the data. The safe way to ask "is there no matching row?" is `NOT EXISTS` (lesson 1.3), whose answer is only ever true or false:
+
+```sql
+SELECT f.id, f.name, f.level
+FROM facilities AS f
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM facilities AS r
+  WHERE r.referral_facility_id = f.id
+)
+ORDER BY f.id;
+```
+
+Your result now lists facilities that nobody refers to. For a facility at the top of a chain, the inner comparison with NULL is unknown, so that row simply does not count as a match, which is exactly what you meant. Adding `WHERE referral_facility_id IS NOT NULL` inside the `NOT IN` subquery also works, but it is easy to forget; prefer `NOT EXISTS`. Plain `IN` does not have this problem in a `WHERE` clause: NULLs in the list cannot create false matches, and real matches are still found.
+
+<QuickCheck id="m01-qc-06-3" />
+
+## Aggregates, display and sorting
+
+Aggregates other than `count(*)` skip NULLs. `avg(x)` divides by the number of non-NULL values, not by the number of rows. And when there is nothing to add up, because no rows matched or every value was NULL, `sum` returns NULL, not 0. A pharmacy report that prints a blank for "tablets dispensed" instead of 0 usually has this cause.
+
+**COALESCE** returns its first argument that is not NULL, so `COALESCE(sum(quantity), 0)` turns "nothing" into 0, and `COALESCE(phone, 'no phone recorded')` gives a readable label. Use it for display and for totals. Do not use it to store made-up values: a haemoglobin recorded as 0 instead of NULL is a dangerous lie, while NULL is an honest "not measured".
+
+Sorting has a rule too. In PostgreSQL, NULLs sort as if larger than every other value: last in ascending order, first in descending order. You can override this with `NULLS FIRST` or `NULLS LAST`:
+
+```sql
+SELECT id,
+       full_name,
+       COALESCE(phone, 'no phone recorded') AS phone_shown
+FROM patients
+ORDER BY phone DESC
+LIMIT 5;
+```
+
+Your top rows are likely to be patients with no phone, because NULLs come first in descending order. Change the last line but one to `ORDER BY phone DESC NULLS LAST` and run it again. Other database systems choose differently here, so write `NULLS FIRST` or `NULLS LAST` whenever the position of missing values matters.
+
+<QuickCheck id="m01-qc-06-4" />
+
+All of this behaves the same in PGlite as in server PostgreSQL 18.
+
+## Free sources
+
+- [PostgreSQL reference: comparison operators, IS NULL and IS DISTINCT FROM](https://www.postgresql.org/docs/current/functions-comparison.html)
+- [PostgreSQL reference: IN, NOT IN and EXISTS with subqueries](https://www.postgresql.org/docs/current/functions-subquery.html)
+- [PostgreSQL reference: COALESCE and other conditional expressions](https://www.postgresql.org/docs/current/functions-conditional.html)

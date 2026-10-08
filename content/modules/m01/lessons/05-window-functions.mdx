@@ -1,0 +1,159 @@
+A clinic manager asks: which visit was each patient's most recent? How many days passed between one visit and the next? How many paracetamol tablets have been prescribed so far this week, day by day? `GROUP BY` cannot answer these well, because it squashes many rows into one. In this lesson you will add a calculated value to every row while keeping the rows themselves, and you will learn the one default setting that quietly gives wrong running totals.
+
+## Rows that can see their neighbours
+
+A **window function** computes a value for each row from a set of related rows, without merging those rows together. The set of rows it looks at is the row's **window**, and you describe it with an `OVER (...)` clause straight after the function.
+
+Two parts of `OVER` do most of the work. **PARTITION BY** splits the rows into groups, called **partitions**, and the function starts afresh in each one. **ORDER BY** inside `OVER` sets the order of rows within each partition. Here every visit gets a running number per patient, and each row also carries the patient's total number of visits:
+
+```sql
+SELECT patient_id,
+       visit_at::date AS visit_day,
+       visit_type,
+       row_number() OVER (PARTITION BY patient_id ORDER BY visit_at) AS visit_no,
+       count(*)     OVER (PARTITION BY patient_id)                   AS patient_visits
+FROM visits
+WHERE patient_id <= 2
+ORDER BY patient_id, visit_at;
+```
+
+Compare this with `SELECT patient_id, count(*) FROM visits GROUP BY patient_id`, which returns one row per patient. Here every visit row survives, and the patient's total simply repeats on each of them. `row_number()` counts 1, 2, 3 within each patient and restarts at 1 for the next.
+
+Notice there are two `ORDER BY`s. The one inside `OVER` decides how the numbers are given out; the one at the end of the query decides the order you see the rows in. They are independent, and you usually want both.
+
+<Note term="Window">The rows a window function looks at for the current row. An empty `OVER ()` means every row of the result, which is handy for "percentage of the total".</Note>
+
+## Numbering, ranking and ties
+
+Three functions give each row a position, and they differ only when two rows tie on the `ORDER BY` value:
+
+- `row_number()` gives every row a different number, even when rows tie.
+- `rank()` gives tied rows the same number, then skips: 1, 2, 2, 4.
+- `dense_rank()` gives tied rows the same number without skipping: 1, 2, 2, 3.
+
+Here patients at one facility are ranked by how many visits they made. The window functions run after `GROUP BY`, so `count(*)` is available to order by:
+
+```sql
+SELECT patient_id,
+       count(*) AS visits,
+       row_number() OVER (ORDER BY count(*) DESC, patient_id) AS row_no,
+       rank()       OVER (ORDER BY count(*) DESC)             AS rnk,
+       dense_rank() OVER (ORDER BY count(*) DESC)             AS dense_rnk
+FROM visits
+WHERE facility_id = 1
+GROUP BY patient_id
+ORDER BY visits DESC, patient_id
+LIMIT 10;
+```
+
+Look for patients with equal visit counts in your result: they share a `rnk`, and the number after them jumps. With `row_number()`, ties must still get different numbers, and PostgreSQL is free to hand them out in any order. That is why `patient_id` is added as a **tie-breaker**: a second sort key that makes the order fully determined, so the same query gives the same numbers every time.
+
+Which one you want depends on the question. "Exactly three patients for a call list" suits `row_number()`. "Everyone in the top three visit counts" suits `dense_rank()`.
+
+<QuickCheck id="m01-qc-05-1" />
+
+## Looking back with lag and lead
+
+`lag(value)` returns `value` from the previous row in the same partition; `lead(value)` returns it from the next row. On the first row there is no previous row, so `lag` returns NULL (lesson 1.6 explains NULL properly). This gives the gap between a patient's visits:
+
+```sql
+SELECT patient_id,
+       visit_at::date AS visit_day,
+       lag(visit_at::date) OVER w                  AS previous_day,
+       visit_at::date - lag(visit_at::date) OVER w AS days_since
+FROM visits
+WHERE patient_id <= 2
+WINDOW w AS (PARTITION BY patient_id ORDER BY visit_at)
+ORDER BY patient_id, visit_at;
+```
+
+Subtracting one `date` from another gives a whole number of days. The `WINDOW w AS (...)` clause names a window once so that several functions can share it, which saves repeating the same `PARTITION BY` and `ORDER BY`. In a real follow-up programme, a large `days_since` is how you would spot patients who missed appointments.
+
+## Running totals and the default frame
+
+An ordinary aggregate such as `sum()` becomes a window function when you add `OVER`. With an `ORDER BY` inside, it sums only part of the partition for each row: its **frame**. Unless you say otherwise, the frame runs from the start of the partition up to the current row, *including every row that ties with it on the `ORDER BY` value*. Rows that tie like this are called **peers**.
+
+That default is the trap. Watch a running total of paracetamol (drug 2) ordered by day, when several prescriptions fall on the same day:
+
+```sql
+SELECT v.visit_at::date AS day,
+       p.id             AS rx_id,
+       p.quantity,
+       sum(p.quantity) OVER (ORDER BY v.visit_at::date)       AS running_default,
+       sum(p.quantity) OVER (ORDER BY v.visit_at::date, p.id) AS running_fixed
+FROM prescriptions AS p
+JOIN visits AS v ON v.id = p.visit_id
+WHERE p.drug_id = 2 AND v.visit_at < '2024-01-04'
+ORDER BY day, rx_id
+LIMIT 10;
+```
+
+In `running_default`, every prescription on the same day shows the same figure: the total at the end of that day, because all that day's rows are peers and all are included. In `running_fixed`, the tie-breaker `p.id` makes every row unique, so the total grows one prescription at a time.
+
+You can also change the frame itself: `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` counts physical rows rather than peers. On its own, though, it adds peers in whatever order PostgreSQL happens to process them, so add a tie-breaker anyway if you want repeatable figures. And sometimes the default is exactly what you want: if the report is "total at the end of each day", peers sharing one figure is correct.
+
+<QuickCheck id="m01-qc-05-2" />
+
+## A seven-day moving average
+
+Frames can also slide. A **moving average** averages the current row with a fixed number of rows before it, which smooths out day-to-day noise in attendance:
+
+```sql
+WITH daily AS (
+  SELECT visit_at::date AS day, count(*) AS visits
+  FROM visits
+  WHERE visit_at >= '2025-03-01' AND visit_at < '2025-04-01'
+  GROUP BY visit_at::date
+)
+SELECT day,
+       visits,
+       round(avg(visits) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 1) AS avg_7_days
+FROM daily
+ORDER BY day
+LIMIT 10;
+```
+
+`ROWS BETWEEN 6 PRECEDING AND CURRENT ROW` means this row and the six before it: seven rows. Two details matter. First, the early rows have fewer than six rows before them, so the first day's "average" is just that day, and the second averages two days. Second, `ROWS` counts rows, not days. If a facility had a day with no visits, that day would have no row, and seven rows would stretch over eight calendar days. Either build a complete calendar first (lesson 1.7 shows how) or frame by value with `RANGE BETWEEN interval '6 days' PRECEDING AND CURRENT ROW`, which looks back six calendar days on a `date` column. Offsets with `RANGE` need PostgreSQL 11 or later.
+
+There is a third detail hiding in that query: the first days of March cannot see late February, because the `WHERE` clause removed those rows before the window function ran. Window functions only see rows that survived `WHERE`, `GROUP BY` and `HAVING`.
+
+## Common mistake: filtering on a window result in WHERE
+
+That order of work explains the most common error with window functions. To keep only each patient's latest visit, it is tempting to write:
+
+```text
+SELECT patient_id, visit_at
+FROM visits
+WHERE row_number() OVER (PARTITION BY patient_id ORDER BY visit_at DESC) = 1;
+
+ERROR:  window functions are not allowed in WHERE
+```
+
+PostgreSQL reports this with the error code 42P20. `WHERE` runs first and decides which rows exist; window functions are calculated later, on the rows that remain. Giving the column an alias such as `rn` and writing `WHERE rn = 1` fails too, with "column rn does not exist", because aliases from the `SELECT` list are not visible in `WHERE`.
+
+The fix is to compute the window in one step and filter in the next, using a CTE (lesson 1.3) or a subquery:
+
+```sql
+WITH ranked AS (
+  SELECT patient_id, visit_at, visit_type,
+         row_number() OVER (PARTITION BY patient_id ORDER BY visit_at DESC, id DESC) AS rn
+  FROM visits
+)
+SELECT patient_id, visit_at, visit_type
+FROM ranked
+WHERE rn = 1
+ORDER BY patient_id
+LIMIT 5;
+```
+
+This "latest row per group" pattern is everywhere in clinical software: the latest blood pressure, the latest stock count, the current prescription. The `id DESC` tie-breaker makes sure that if two visits shared a timestamp, the same one wins every time. PostgreSQL also has its own `DISTINCT ON` for this job; the `row_number()` version works in other databases too.
+
+<QuickCheck id="m01-qc-05-3" />
+
+Everything in this lesson behaves the same in PGlite as in server PostgreSQL 18.
+
+## Free sources
+
+- [PostgreSQL tutorial: window functions](https://www.postgresql.org/docs/current/tutorial-window.html)
+- [PostgreSQL reference: window functions](https://www.postgresql.org/docs/current/functions-window.html)
+- [PostgreSQL reference: window function calls and frames](https://www.postgresql.org/docs/current/sql-expressions.html)

@@ -1,0 +1,133 @@
+A clinic in Kampala wants "visits in March". The database server may run on UTC, the reporting tool may run somewhere else, and a visit just before midnight belongs to a different day depending on whose clock you read. In this lesson you will learn how PostgreSQL stores moments in time, how to convert between time zones without guessing, how to select a month correctly, and how to build a monthly report that shows empty months as 0 instead of leaving them out.
+
+## An instant, shown in your time zone
+
+The `visit_at` column has the type **timestamptz** (short for "timestamp with time zone"). It stores an **instant**: one point on the world's shared timeline, kept internally in UTC (Coordinated Universal Time). It does not remember which zone it was typed in. When you read it, PostgreSQL converts it to the session's **time zone** setting for display.
+
+Every session in this course starts with `SET TIME ZONE 'Africa/Kampala'`, so values print with `+03`. `SHOW TIME ZONE` tells you the current setting. Rather than take on trust that Kampala is always three hours ahead of UTC, check it: this shows the offset on every day from 2020 to 2030.
+
+```sql
+SELECT current_setting('TimeZone') AS session_zone,
+       to_char(day, 'TZH:TZM')     AS utc_offset,
+       count(*)                    AS days_checked
+FROM generate_series(timestamptz '2020-01-01', timestamptz '2030-12-31', interval '1 day') AS day
+GROUP BY 1, 2;
+```
+
+One row, one offset: no daylight saving in that period. With the session set to `'Europe/London'` the same query returns two rows, `+00:00` and `+01:00`, because the clocks there change with the seasons. PostgreSQL takes these rules from the **IANA time zone database**, a public list of every region's clock changes. Governments do change their rules occasionally, so name the zone (`'Africa/Kampala'`) rather than hard-coding `'+03'`.
+
+The default zone depends on where PostgreSQL runs. A server takes it from its configuration, usually copied from the machine's own time zone when the database was created. PGlite on its own starts in GMT (we saw `Etc/GMT0` with PGlite 0.5.8), which is why this course sets the zone at the start of every session.
+
+<QuickCheck id="m01-qc-07-1" />
+
+## timestamp without a zone
+
+The other type, **timestamp** (strictly "timestamp without time zone"), is a wall-clock reading with no zone attached, like "08:00" written in a register without saying where. If you include an offset in a `timestamp` literal, PostgreSQL silently ignores it: `timestamp '2025-03-01 08:00+05'` is just 08:00 on 1 March.
+
+Use `timestamptz` for things that happened: visits, dispensing, stock counts. A plain `timestamp` suits rare cases defined by a local clock, such as a future appointment that must stay at 09:00 local time even if the zone's rules change.
+
+<Note term="Instant">A single point in time, the same everywhere in the world. 12:00 in Kampala and 09:00 in London (in winter) are the same instant.</Note>
+
+## Converting with AT TIME ZONE
+
+`AT TIME ZONE` converts between the two types, and the direction depends on what you give it:
+
+- `timestamptz AT TIME ZONE 'zone'` returns a `timestamp`: what a wall clock in that zone showed at that instant.
+- `timestamp AT TIME ZONE 'zone'` returns a `timestamptz`: it treats the clock reading as local time in that zone and works out the instant.
+
+```sql
+SELECT id,
+       visit_at,
+       visit_at AT TIME ZONE 'UTC'                      AS utc_clock,
+       (visit_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AS back_again
+FROM visits
+ORDER BY id
+LIMIT 3;
+```
+
+`utc_clock` reads three hours earlier and has no offset, because it is now a plain `timestamp`. `back_again` converts that reading back into an instant, so it matches `visit_at`. A safe habit: store `timestamptz`, and use `AT TIME ZONE` only at the edges, to show a clock reading or to read one in.
+
+Casting is zone-dependent too. `visit_at::date` gives the date in the session's zone: an instant at 22:30 UTC on 31 March is already 1 April in Kampala.
+
+<QuickCheck id="m01-qc-07-2" />
+
+## Common mistake: BETWEEN with timestamps
+
+To count visits in March 2025, many people write `BETWEEN '2025-03-01' AND '2025-03-31'`. Compare it with the correct form:
+
+```sql
+SELECT count(*) FILTER (WHERE visit_at >= '2025-03-01' AND visit_at < '2025-04-01') AS half_open,
+       count(*) FILTER (WHERE visit_at BETWEEN '2025-03-01' AND '2025-03-31')      AS between_dates
+FROM visits;
+```
+
+Your `between_dates` count is almost certainly lower. Compared with a `timestamptz`, the text `'2025-03-31'` becomes midnight at the *start* of 31 March, Kampala time, so almost all of 31 March is missed. Pushing the end to `'2025-04-01'` does not fix it: `BETWEEN` includes both ends, so a visit at exactly midnight would land in both the March and April reports.
+
+The reliable pattern is a **half-open range**: it includes its start and excludes its end, written `visit_at >= '2025-03-01' AND visit_at < '2025-04-01'`. Consecutive months then meet exactly, with no gaps and no overlaps, however precise the timestamps are. Keeping the bare column on one side of the comparison, rather than writing something like `visit_at::date`, also lets PostgreSQL use an index on `visit_at`; Module 3 explains why.
+
+<QuickCheck id="m01-qc-07-3" />
+
+## Monthly reports with no missing months
+
+`date_trunc('month', visit_at)` rounds an instant down to the start of its month. For a `timestamptz`, "start of month" depends on the session's zone, so the same query can group a late-night visit differently on a server set to UTC. Since PostgreSQL 12 you can name the zone as a third argument, `date_trunc('month', visit_at, 'Africa/Kampala')`, and get the same months whatever the session says.
+
+`GROUP BY` only produces a group when there is at least one row, so a month with no visits simply vanishes from a report. To show it as 0, first build the full list of months with `generate_series(start, stop, step)`, then `LEFT JOIN` the counts to it (lesson 1.1) and turn the missing counts into 0 with `COALESCE` (lesson 1.6). Here is one patient's attendance by month, as you might review it before a follow-up appointment:
+
+```sql
+WITH months AS (
+  SELECT generate_series(timestamptz '2025-01-01', timestamptz '2025-12-01', interval '1 month') AS month_start
+),
+counts AS (
+  SELECT date_trunc('month', visit_at, 'Africa/Kampala') AS month_start,
+         count(*) AS visits
+  FROM visits
+  WHERE patient_id = 1
+  GROUP BY 1
+)
+SELECT to_char(m.month_start, 'Mon YYYY') AS month,
+       COALESCE(c.visits, 0)              AS visits
+FROM months AS m
+LEFT JOIN counts AS c ON c.month_start = m.month_start
+ORDER BY m.month_start;
+```
+
+All twelve months appear, including those with no visits, which show 0. `to_char` formats a date or time as text using a pattern; `'Mon YYYY'` gives an abbreviated month name and the year.
+
+<QuickCheck id="m01-qc-07-4" />
+
+## Intervals, ages and weekdays
+
+An **interval** is a length of time, such as `interval '7 days'` or `interval '1 month'`. Subtracting one `timestamptz` from another gives an interval; subtracting one `date` from another gives a whole number of days. Months have different lengths, so PostgreSQL adds them by calendar: 31 January plus one month is 28 February in 2025.
+
+`age(later, earlier)` gives the difference in years, months and days, which is how a clinician states an age. With only one argument, `age(date_of_birth)` measures up to today, so the answer changes daily; a report that must give the same numbers next week should name its reference date:
+
+```sql
+SELECT id,
+       date_of_birth,
+       age(date '2025-01-01', date_of_birth)       AS age_on_1_jan_2025,
+       (date_of_birth + interval '18 years')::date AS turns_18
+FROM patients
+ORDER BY id
+LIMIT 3;
+```
+
+Adding an interval to a `date` gives a `timestamp`, hence the cast back to `date`.
+
+For weekdays, `extract(isodow FROM visit_at)` numbers Monday as 1 and Sunday as 7, while `extract(dow ...)` numbers Sunday as 0. `to_char(visit_at, 'FMDay')` gives the name; `FM` removes the padding spaces that `Day` adds otherwise.
+
+```sql
+SELECT extract(isodow FROM visit_at) AS iso_day,
+       to_char(visit_at, 'FMDay')    AS weekday,
+       count(*)                      AS visits
+FROM visits
+GROUP BY 1, 2
+ORDER BY 1;
+```
+
+Your counts come out roughly equal across the week. That is a feature of the synthetic data, not of clinics: visit times were generated spread evenly over every hour of every day, so a 3 a.m. visit is as likely as a 10 a.m. one. Real attendance data would show quiet Sundays and busy mornings, and the same queries would reveal it.
+
+## Free sources
+
+- [PostgreSQL reference: date and time types, including time zones](https://www.postgresql.org/docs/current/datatype-datetime.html)
+- [PostgreSQL reference: date and time functions and operators](https://www.postgresql.org/docs/current/functions-datetime.html)
+- [Use The Index, Luke: why ranges on the bare column suit indexes](https://use-the-index-luke.com/)

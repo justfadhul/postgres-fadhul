@@ -139,8 +139,8 @@ export default function Spikes() {
   const done = report.results.length > 0
 
   return (
-    <>
-      <h1>Engine check</h1>
+    <div className="page">
+      <h1 className="display" style={{ fontSize: 44, marginBottom: 12 }}>Engine check</h1>
       <p>
         This page tests whether PostgreSQL runs properly in this browser: the engine loads in a background worker, saves to
         the browser's storage, and supports the features later modules need.
@@ -209,6 +209,6 @@ export default function Spikes() {
           </details>
         </>
       )}
-    </>
+    </div>
   )
 }

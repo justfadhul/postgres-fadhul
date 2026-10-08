@@ -1,0 +1,182 @@
+Most reports a district health office asks for are totals: visits per facility, patients seen
+this quarter, tablets of each drug on the shelf. In this lesson you will collapse many rows into one
+per group, pick the right kind of count, filter both before and after grouping, and produce several
+counts side by side in one pass over the data.
+
+## One row per group
+
+An **aggregate function** takes many rows and returns one value: `count`, `sum`, `avg`, `min` and
+`max` are the everyday ones. On its own, an aggregate collapses the whole table into a single row.
+Add `GROUP BY` and PostgreSQL first divides the rows into **groups**, one for each distinct value of
+the grouping columns, then computes the aggregate once per group.
+
+```sql
+SELECT f.id, f.name, count(*) AS visits
+FROM visits AS v
+JOIN facilities AS f ON f.id = v.facility_id
+GROUP BY f.id
+ORDER BY visits DESC
+LIMIT 5;
+```
+
+Notice that `f.name` is selected but only `f.id` is grouped. PostgreSQL allows this because `id` is
+the primary key of `facilities`: once you know the id, there is only one possible name, so the name
+cannot vary within a group. That rule applies to a primary key of a table in the query; for any
+other column you must group by it or aggregate it (see the common mistake below).
+
+## Which count are you asking for?
+
+There are three counts, and they answer different questions:
+
+- `count(*)` counts rows, whatever is in them.
+- `count(column)` counts rows where that column is not NULL.
+- `count(DISTINCT column)` counts the different non-NULL values.
+
+In the clinic data, some visits have no diagnosis recorded, and the same patient can come back many
+times, so these numbers differ:
+
+```sql
+SELECT facility_id,
+       count(*) AS visits,
+       count(diagnosis_code) AS with_diagnosis,
+       count(DISTINCT diagnosis_code) AS different_diagnoses,
+       count(DISTINCT patient_id) AS patients_seen
+FROM visits
+GROUP BY facility_id
+ORDER BY facility_id
+LIMIT 5;
+```
+
+"How many visits?" and "how many patients?" are different questions, and only the column names in
+your query tell a reader which one you answered. The gap between `visits` and `with_diagnosis` is
+also a data-quality figure worth reporting: it is the number of visits closed without a diagnosis.
+
+<QuickCheck id="m01-qc-02-1" />
+
+The other aggregates work the same way. `sum`, `avg`, `min` and `max` skip NULLs, and over zero rows
+they return NULL, whereas `count` returns 0. Here is a stock summary per drug across all facilities:
+
+```sql
+SELECT d.name,
+       sum(s.quantity_on_hand) AS total_on_hand,
+       round(avg(s.quantity_on_hand), 1) AS average_per_facility,
+       min(s.quantity_on_hand) AS lowest,
+       max(s.quantity_on_hand) AS highest
+FROM stock AS s
+JOIN drugs AS d ON d.id = s.drug_id
+GROUP BY d.name
+ORDER BY total_on_hand
+LIMIT 5;
+```
+
+A drug with a healthy total can still have one facility close to zero, which is why `min` sits next
+to `sum` here. `avg` of whole numbers returns a `numeric`, often with many decimal places, so `round`
+tidies it for display.
+
+<QuickCheck id="m01-qc-02-2" />
+
+## WHERE before, HAVING after
+
+A grouped query has two places to filter, and they run at different times.
+
+- `WHERE` filters **rows**, before any grouping happens. It cannot use an aggregate, because no
+  groups exist yet.
+- `HAVING` filters **groups**, after the aggregates are computed. It is where conditions such as
+  `count(*) >= 5` belong.
+
+To find frequent emergency attenders, keep only emergency visits (a row condition, so `WHERE`), group
+by patient, then keep patients with five or more (a group condition, so `HAVING`):
+
+```sql
+SELECT patient_id, count(*) AS emergency_visits
+FROM visits
+WHERE visit_type = 'emergency'
+GROUP BY patient_id
+HAVING count(*) >= 5
+ORDER BY emergency_visits DESC, patient_id
+LIMIT 10;
+```
+
+If a condition could go in either place, put it in `WHERE`: throwing rows away before grouping means
+less work.
+
+<QuickCheck id="m01-qc-02-3" />
+
+## Side-by-side counts with FILTER
+
+A manager often wants one row per facility with a column for each visit type. You could run four
+queries, but an aggregate can take its own condition: `count(*) FILTER (WHERE …)` counts only the
+rows in the group that pass that condition. Each column gets its own filter, and the table is read
+once.
+
+```sql
+SELECT facility_id,
+       count(*) AS all_visits,
+       count(*) FILTER (WHERE visit_type = 'outpatient') AS outpatient,
+       count(*) FILTER (WHERE visit_type = 'antenatal')  AS antenatal,
+       count(*) FILTER (WHERE visit_type = 'follow-up')  AS follow_up,
+       count(*) FILTER (WHERE visit_type = 'emergency')  AS emergency
+FROM visits
+WHERE visit_at >= '2025-01-01'
+GROUP BY facility_id
+ORDER BY facility_id
+LIMIT 5;
+```
+
+`FILTER` works with any aggregate, so on `prescriptions`, `sum(quantity) FILTER (WHERE dispensed)`
+would total only the units actually dispensed. It is PostgreSQL syntax from the SQL standard; some other databases lack it, and
+there you would see the older trick `sum(CASE WHEN … THEN 1 ELSE 0 END)`, which gives the same
+numbers.
+
+<QuickCheck id="m01-qc-02-4" />
+
+## Grouping by an expression
+
+You can group by a calculation, not just a column. Monthly totals group by the month each visit
+falls in:
+
+```sql
+SELECT date_trunc('month', visit_at) AS month,
+       count(*) AS visits
+FROM visits
+WHERE facility_id = 1
+  AND visit_at >= '2025-01-01'
+GROUP BY date_trunc('month', visit_at)
+ORDER BY month
+LIMIT 6;
+```
+
+`date_trunc('month', …)` rounds a timestamp down to the first moment of its month. For a
+`timestamptz` column it does this in the session's time zone, which here is Africa/Kampala, so a
+visit at 01:00 Kampala time on 1 April counts in April. Lesson 1.7 shows how a different time zone
+setting would move visits between months.
+
+<Note term="Group">The set of rows that share the same values in every `GROUP BY` expression. Each group becomes one output row.</Note>
+
+## Common mistake: a column that is neither grouped nor aggregated
+
+Every column in the `SELECT` list of a grouped query must either appear in `GROUP BY` or sit inside
+an aggregate. This query breaks the rule:
+
+```text
+SELECT facility_id, visit_type, count(*)
+FROM visits
+GROUP BY facility_id;
+```
+
+PostgreSQL refuses it with SQLSTATE **42803** (`grouping_error`) and the message that column
+`visits.visit_type` must appear in the `GROUP BY` clause or be used in an aggregate function. The
+reason is sound: one facility can have visits of several types, and the output has one row per facility, so
+which type should that row show? There is no right answer, so the database will not guess.
+(MySQL in some configurations does guess, silently picking a value; that is a source of real bugs
+when queries move between databases.)
+
+The fix depends on what you meant. If you want a row for each facility and type, add `visit_type`
+to `GROUP BY`. If you want a column per type, use `FILTER` as above. If you only wanted the
+facility totals, remove `visit_type` from the select list.
+
+## Free sources
+
+- [PostgreSQL tutorial: aggregate functions](https://www.postgresql.org/docs/current/tutorial-agg.html)
+- [PostgreSQL manual: list of aggregate functions](https://www.postgresql.org/docs/current/functions-aggregate.html)
+- [PostgreSQL Exercises](https://pgexercises.com/), whose "Aggregation" section is good practice for `GROUP BY` and `HAVING`
