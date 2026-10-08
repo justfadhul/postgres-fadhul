@@ -14,7 +14,7 @@ Columns come back in the order you list them, separated by commas. `SELECT *` me
 
 SQL keywords are not case-sensitive: `select`, `SELECT` and `Select` are the same. This course writes keywords in capitals so they stand out. Unquoted table and column names are not case-sensitive either; PostgreSQL turns them into lower case before looking them up, so `FULL_NAME` finds the `full_name` column. Line breaks and spaces are up to you.
 
-`SELECT` does not even need a table. Without `FROM` it works as a calculator:
+In PostgreSQL, `SELECT` does not even need a table (a convenience; some other databases require a `FROM`). Without `FROM` it works as a calculator:
 
 ```sql
 SELECT 2 + 3 AS answer, 'hello' AS greeting;
@@ -74,7 +74,7 @@ ORDER BY full_name
 LIMIT 5;
 ```
 
-An alias follows the same rule as other names: `AS Patient` gives a column called `patient`. To keep capital letters or spaces, put the alias in double quotes: `AS "Patient name"`. The `AS` keyword itself is optional. That is convenient, and it is also the cause of this lesson's common mistake.
+An alias follows the same rule as other names: `AS Patient` gives a column called `patient`. To keep capital letters or spaces, put the alias in double quotes: `AS "Patient name"`. The `AS` keyword itself is usually optional (an alias that is also an SQL keyword needs it). That is convenient, and it is also the cause of this lesson's common mistake.
 
 ## Removing duplicates with DISTINCT
 
@@ -110,7 +110,7 @@ You write the clauses in a fixed order: `SELECT`, `FROM`, `WHERE` (lesson 0.4), 
 6. `ORDER BY`: sort.
 7. `LIMIT`: keep the first few.
 
-(PostgreSQL may take shortcuts when it actually runs a query, but the result is always as if it had followed these steps.) One consequence: `ORDER BY` comes after `SELECT`, so it can use an alias, as the drugs query above did with `letters`. `WHERE` comes before `SELECT`, so the alias does not exist yet:
+(PostgreSQL may take shortcuts when it actually runs a query, but the result is always as if it had followed these steps.) One consequence: `ORDER BY` comes after `SELECT`, so it can use an alias on its own (not inside a calculation), as the drugs query above did with `letters`. `WHERE` comes before `SELECT`, so the alias does not exist yet:
 
 ```sql
 -- Expect error 42703

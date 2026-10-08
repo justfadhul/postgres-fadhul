@@ -52,7 +52,7 @@ FROM prescriptions
 WHERE drug_id = 2;
 ```
 
-The average of whole numbers has a long tail of decimal places, so it is wrapped in `round`. Remove the `round` and run it again to see the difference.
+The average of whole numbers has a long tail of decimal places, so it is wrapped in `round`. Open it in the workbench and remove the `round` to see the difference.
 
 `min` and `max` are not just for numbers: they work on anything that can be sorted, including dates and text. The first and last visits in the data:
 
@@ -121,7 +121,7 @@ GROUP BY level
 ORDER BY level;
 ```
 
-The rule to remember: once a query groups or aggregates, every column in the `SELECT` list must either be named in `GROUP BY` or sit inside an aggregate function. Lesson 1.2 covers grouping fully: several columns, filtering groups, and how to choose the right count.
+The rule to remember: once a query groups or aggregates, every column in the `SELECT` list must either be named in `GROUP BY` or sit inside an aggregate function (with one exception, shown in lesson 1.2: columns of a table whose primary key is grouped). Lesson 1.2 covers grouping fully: several columns, filtering groups, and how to choose the right count.
 
 ## Common mistake: a plain column next to an aggregate
 
@@ -133,7 +133,7 @@ SELECT visit_type, count(*)
 FROM visits;
 ```
 
-The count collapses all visits into one row, but there are several visit types, and PostgreSQL will not pick one for you. The message says `visit_type` must appear in the `GROUP BY` clause or be used in an aggregate function. Add `GROUP BY visit_type` and it runs.
+The count collapses all visits into one row, but there are several visit types, and PostgreSQL will not pick one for you. The message says `visits.visit_type` must appear in the `GROUP BY` clause or be used in an aggregate function. Add `GROUP BY visit_type` and it runs.
 
 A related slip is putting an aggregate in `WHERE`, for example to keep only busy visit types. `WHERE` runs on single rows before any counting has happened, so this is refused with the same code:
 

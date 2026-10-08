@@ -18,7 +18,7 @@ The types you will use most:
 - **integer**: whole numbers, up to about 2.1 billion either side of zero. **bigint** is the same with a far larger range; `visits.id` uses it.
 - **numeric**: exact decimal numbers, with as many digits as you need. Use it for doses and money, where rounding errors are not acceptable.
 - **text**: characters of any length: names, codes, notes.
-- **boolean**: true or false. `prescriptions.dispensed` is one. PostgreSQL shows the values as `t` and `f`.
+- **boolean**: true or false. `prescriptions.dispensed` is one. psql and this site show the values as `t` and `f`; some other tools show `true` and `false`.
 - **date**: a calendar date, with no time of day: `date_of_birth`.
 - **timestamptz**: a moment in time (short for "timestamp with time zone"): `visit_at`. It is shown in the session's time zone, which here is Kampala time, `+03`. Lesson 1.7 explains time zones properly.
 
@@ -46,7 +46,7 @@ SELECT 'Women''s clinic'          AS label,
 
 A number with a decimal point is `numeric`, exact, rather than an approximate floating-point number (a type you will meet later), and a whole number too large for `integer` becomes `bigint` on its own.
 
-Double quotes are for **identifiers**: the names of tables, columns and aliases. You only need them for a name with capital letters, spaces or other unusual characters, such as the alias `"Patient name"` in lesson 0.3. Single quotes for values, double quotes for names: lesson 0.4 showed what happens when they are swapped.
+Double quotes are for **identifiers**: the names of tables, columns and aliases. You only need them for a name with capital letters, spaces or other unusual characters, or a name that is an SQL keyword such as `"order"`, such as the alias `"Patient name"` in lesson 0.3. Single quotes for values, double quotes for names: lesson 0.4 showed what happens when they are swapped.
 
 <QuickCheck id="m00-qc-05-1" />
 

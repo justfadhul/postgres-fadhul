@@ -1,4 +1,4 @@
-The clinic data is not one big list. It is eight tables, each holding one kind of thing, linked to each other by numbers. In this lesson you will look inside a table, list the tables and their columns, meet the two kinds of key that hold everything together, and see why splitting facts into separate tables is worth the trouble.
+The clinic data is not one big list. It is eight tables, each holding one kind of thing, linked to each other by shared values, mostly id numbers. In this lesson you will look inside a table, list the tables and their columns, meet the two kinds of key that hold everything together, and see why splitting facts into separate tables is worth the trouble.
 
 ## Tables, rows, columns and values
 
@@ -18,7 +18,7 @@ Each row is one patient and each column is one fact about them. Some rows may sh
 
 In PostgreSQL a **schema** is a named container for tables, a bit like a folder. The clinic tables live in a schema called `clinic`, so the full name of the patients table is `clinic.patients`. Every session here sets a **search path**, the list of schemas PostgreSQL looks in when you give a table name without a prefix, and `clinic` is first on it. That is why plain `patients` works. (The word "schema" is also used for the design of a database as a whole: which tables, which columns, which rules. Module 2 is about that kind of schema.)
 
-PostgreSQL describes itself in tables too. **information_schema** is a built-in set of read-only tables about the database: what tables exist, what columns they have, and so on. This lists the clinic tables:
+PostgreSQL describes itself in tables too. **information_schema** is a built-in set of **views** (stored queries that you read like tables) about the database: what tables exist, what columns they have, and so on. This lists the clinic tables:
 
 ```sql
 -- Expect 8 rows
@@ -65,7 +65,7 @@ A primary key can span more than one column. The `stock` table has one row for e
 
 ## Foreign keys and one-to-many
 
-A **foreign key** is a column whose values must match the primary key of another table (or, occasionally, of the same table). `visits.patient_id` is a foreign key to `patients.id`: every visit must belong to a patient who exists. PostgreSQL keeps a list of every key in its own catalogue. You do not need to understand this query yet; read the `definition` column of the result:
+A **foreign key** is a column whose values must match a key (usually the primary key) of another table, or occasionally of the same table. A NULL in a foreign key column needs no match. `visits.patient_id` is a foreign key to `patients.id`: every visit must belong to a patient who exists. PostgreSQL keeps a list of every key in its own catalogue. You do not need to understand this query yet; read the `definition` column of the result:
 
 ```sql
 -- Expect 19 rows

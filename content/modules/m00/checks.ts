@@ -25,7 +25,7 @@ export const CHECKS: QuickCheck[] = [
     ],
     answer: 1,
     explanation:
-      'PGlite runs PostgreSQL inside your browser and saves its data in the browser\'s own storage, on this device only. There is no server, so nothing is shared or sent anywhere. That is also why the data does not follow you to another device. The third option describes lesson examples, which run in a transaction that is undone at once; the workbench keeps your changes.',
+      'PGlite runs PostgreSQL inside your browser and saves its data in the browser\'s own storage, on this device only. There is no server, so nothing is shared or sent anywhere. That is also why the data stays on this device unless you send a progress file to another one (Settings). The third option is closest to lesson examples, but those are undone as soon as each one finishes; the workbench keeps your changes.',
   },
   {
     id: 'm00-qc-01-3',
@@ -39,7 +39,7 @@ export const CHECKS: QuickCheck[] = [
     ],
     answer: 1,
     explanation:
-      'A query states what you want: these columns, from this table, these rows, in this order. PostgreSQL\'s planner chooses how to get it, for example whether to read the whole table or use an index (Module 3). The tempting first option describes a procedural language, where you write the steps yourself. Files and screen layout are not part of SQL at all.',
+      'A query states what you want: these columns, from this table, these rows, in this order. PostgreSQL\'s planner (the part that decides how to run a query) chooses how to get it, for example whether to read the whole table or use an index, a lookup structure like the index of a book (Module 3). The tempting first option describes a procedural language, where you write the steps yourself. Files and screen layout are not part of SQL at all.',
   },
 
   // 0.2 Tables, rows and keys

@@ -52,7 +52,7 @@ WHERE facility_id = 1
 RETURNING facility_id, drug_id, quantity_on_hand;
 ```
 
-`RETURNING` is a PostgreSQL feature that makes `UPDATE`, `INSERT` and `DELETE` show you the rows they changed, as they are after the change. Without it, you would only be told how many rows were changed.
+`RETURNING` is a PostgreSQL feature that makes `UPDATE`, `INSERT` and `DELETE` show you the rows they changed: the new values for `INSERT` and `UPDATE`, the removed rows for `DELETE`. Without it, you would only be told how many rows were changed.
 
 ## Removing rows: DELETE
 
@@ -115,7 +115,7 @@ Two habits prevent this. First, write the `WHERE` as a `SELECT` and look at the 
 
 ## Transactions: an undo button
 
-A **transaction** groups statements so that they take effect together or not at all. `BEGIN` starts one. `COMMIT` makes its changes permanent. `ROLLBACK` undoes every change made since `BEGIN`. Without `BEGIN`, each statement is its own transaction and is committed as soon as it succeeds; this is called **autocommit**. One detail matters in the workbench: when you run several statements in one go without `BEGIN`, PostgreSQL treats the whole batch as a single transaction, so if a later statement fails, the earlier ones in that batch are undone too.
+A **transaction** groups statements so that they take effect together or not at all. `BEGIN` starts one. `COMMIT` makes its changes permanent. `ROLLBACK` undoes every change made since `BEGIN`. Without `BEGIN`, each statement is its own transaction and is committed as soon as it succeeds; this is called **autocommit**. One detail matters in the workbench: it sends everything you run as one message, and PostgreSQL treats such a batch, without `BEGIN`, as a single transaction, so if a later statement fails, the earlier ones in that batch are undone too. (psql, which you meet in the Codespace, sends statements one at a time, so there each one stands alone.) And if a statement fails after you have typed `BEGIN`, the transaction is broken: run `ROLLBACK` before carrying on, or every later statement is refused.
 
 ```sql
 BEGIN;

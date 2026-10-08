@@ -57,7 +57,7 @@ ORDER BY id
 LIMIT 5;
 ```
 
-Remove the brackets and run it again. Now emergency visits from every facility slip in, because the `AND` binds only to the antenatal test: the query has become "all emergency visits, plus antenatal visits at facility 1". Write brackets whenever a condition contains both `AND` and `OR`, even when you think you know the rule: the next reader will thank you.
+Open it in the workbench, remove the brackets and run it again. Now emergency visits from every facility slip in, because the `AND` binds only to the antenatal test: the query has become "all emergency visits, plus antenatal visits at facility 1". Write brackets whenever a condition contains both `AND` and `OR`, even when you think you know the rule: the next reader will thank you.
 
 <QuickCheck id="m00-qc-04-1" />
 
