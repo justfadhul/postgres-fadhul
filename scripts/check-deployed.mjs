@@ -61,7 +61,13 @@ const decode = (r) => {
 const ASSET_REF = /(?:assets\/|\.\/)([A-Za-z0-9_.-]+\.(?:js|wasm|data|gz))(?![A-Za-z0-9_.-])/g
 const ENGINE = /^pglite-worker-.*\.js$|^pglite-.*\.(wasm|data)$|^initdb-.*\.wasm$|^btree_gist\.tar/
 const fetched = new Map() // asset name -> response
-const queue = [...decode(page).matchAll(ASSET_REF)].map((m) => m[1])
+const html = decode(page)
+const queue = [...html.matchAll(ASSET_REF)].map((m) => m[1])
+if (!queue.length) {
+  console.log(`\nNo asset references found in the page. Its headers and first 600 characters:`)
+  console.log(JSON.stringify(page.headers, null, 1))
+  console.log(html.slice(0, 600))
+}
 while (queue.length && fetched.size < 80) {
   const name = queue.shift()
   if (fetched.has(name)) continue

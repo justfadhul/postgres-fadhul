@@ -1,7 +1,7 @@
 // EXPLAIN (ANALYZE, BUFFERS) helpers. ANALYZE really runs the statement, so it
 // always runs inside a transaction that is rolled back.
 import type { SqlSession } from '../db/engine'
-import { stripSql } from '../grading/result'
+import { splitStatements } from '../grading/statements'
 
 export interface PlanNode {
   'Node Type': string
@@ -35,9 +35,8 @@ export interface ExplainResult {
 
 /** The statement without trailing semicolons, or null if the text holds more than one statement. */
 export function singleStatement(sql: string): string | null {
-  const trimmed = sql.trim().replace(/;\s*$/g, '').trim()
-  if (!trimmed) return null
-  return stripSql(trimmed).includes(';') ? null : trimmed
+  const parts = splitStatements(sql)
+  return parts.length === 1 ? (parts[0] ?? null) : null
 }
 
 export async function explain(session: SqlSession, sql: string): Promise<ExplainResult> {

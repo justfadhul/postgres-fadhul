@@ -5,6 +5,7 @@ import { THREE_WAYS_IDS } from '@content/modules/m01/challenges'
 import type { SqlSession } from '../db/engine'
 import { useRecord, useStore } from '../storage/hooks'
 import { put, type AttemptRecord } from '../storage/store'
+import { splitStatements } from '../grading/statements'
 import { explain, totalBuffers } from './explain'
 
 const LABELS: Record<string, string> = {
@@ -30,7 +31,8 @@ export function ThreeWays({ session, dark }: { session: SqlSession; dark: boolea
       try {
         const out: Measure[] = []
         for (const id of THREE_WAYS_IDS) {
-          const r = await explain(session, attempts[id]?.sql ?? '')
+          // An answer may set up an index first; measure its final query.
+          const r = await explain(session, splitStatements(attempts[id]?.sql ?? '').pop() ?? '')
           out.push({ id, buffers: totalBuffers(r.plan), ms: r.executionMs ?? 0 })
         }
         if (live) setMeasures(out)
