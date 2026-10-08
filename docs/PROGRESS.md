@@ -59,10 +59,10 @@ sends it.
 
 ### Waiting on the learner
 
-1. ~~Import the repository into Vercel.~~ Done. Still needed: the stable production domain, and
-   a check of the Vercel project's **Build Command** setting. The first deployment did not contain
-   `size-report.json`, which `vercel.json`'s build command writes. Either setting is fine now,
-   because the deployed-site check no longer needs that file.
+1. ~~Import the repository into Vercel.~~ Done. Still needed: the stable production domain. The
+   deployed-site check assumes `https://postgres-fadhul.vercel.app/`; if the domain differs, set
+   the repository variable `SITE_URL`. (Per-deployment URLs redirect to the Vercel login page
+   because of Deployment Protection, so the check cannot use them.)
 2. **Approve the spike results and tiers** in [`SPIKES.md`](SPIKES.md): Modules 2, 3 and 6 stay
    Browser tier; standard dataset by default.
 3. **One more engine check on the iPhone.** The first phone results passed reopen, persistence

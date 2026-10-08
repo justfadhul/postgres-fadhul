@@ -69,11 +69,12 @@ of it is PGlite's IndexedDB overhead.
    3.36 MB, `pglite.data` 2.09 MB, the worker 0.14 MB, `initdb.wasm` 0.14 MB and `btree_gist`
    0.02 MB. The site states this figure before downloading, and `npm run check:size` fails if it
    drifts by more than 10%. Whether the host (now Vercel) compresses `.wasm` and `.data` on the
-   wire is not yet known. The first Vercel check could not measure it: it relied on
-   `size-report.json`, which the deployment did not contain. Vercel answered with `index.html` and
-   status 200, which suggests the dashboard's build command, not `vercel.json`'s, was used.
-   `scripts/check-deployed.mjs` now finds the engine files by following references from
-   `index.html`, as the browser does. If the engine is not compressed, the transfer is about 16 MB,
+   wire is not yet known. The first Vercel checks could not measure it, because they never reached
+   the site: per-deployment URLs sit behind Vercel's Deployment Protection, which redirects to the
+   Vercel login page (`x-matched-path: /login`). The checker followed that redirect and read the
+   login page. It now refuses cross-host redirects, finds the engine files by following references
+   from `index.html` as the browser does, and runs against the public production domain. If the
+   engine is not compressed, the transfer is about 16 MB,
    and Milestone 1 should ship pre-compressed files (see PLAN.md, Risks).
 3. **First start runs `initdb`** (about 2 to 3 s of the cold start). Reopening skips it. Shipping
    a pre-initialised data directory could remove it, at the cost of a slightly larger download.

@@ -22,7 +22,14 @@ function rawGet(url, redirects = 3) {
     const req = lib.get(url, { headers: { 'accept-encoding': 'br, gzip', 'user-agent': 'dsm-deploy-check' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
         res.resume()
-        resolve(rawGet(new URL(res.headers.location, url).href, redirects - 1))
+        const target = new URL(res.headers.location, url)
+        // A redirect to another host (for example vercel.com/login when Deployment
+        // Protection is on) means we are not looking at the site at all.
+        if (target.host !== new URL(url).host) {
+          resolve({ status: res.statusCode, headers: res.headers, body: Buffer.alloc(0), redirectedTo: target.href })
+          return
+        }
+        resolve(rawGet(target.href, redirects - 1))
         return
       }
       const chunks = []
@@ -43,6 +50,10 @@ const fail = (msg) => {
 
 const page = await rawGet(base)
 console.log(`${page.status} ${base} (${page.headers['content-encoding'] ?? 'identity'})`)
+if (page.redirectedTo) {
+  fail(`the site redirects to ${page.redirectedTo}. If that is a Vercel login page, this URL is protected by Vercel Deployment Protection: check the public production domain instead.`)
+  process.exit(1)
+}
 if (page.status !== 200) fail(`site root returned ${page.status}`)
 
 for (const path of ['sw.js', 'manifest.webmanifest', 'icon.svg']) {

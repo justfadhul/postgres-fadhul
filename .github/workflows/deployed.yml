@@ -29,4 +29,6 @@ jobs:
       - name: Check shell, service worker and engine compression
         run: node scripts/check-deployed.mjs "$SITE_URL"
         env:
-          SITE_URL: ${{ inputs.url || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+          # Per-deployment URLs are behind Vercel's login (Deployment Protection), so check the
+          # public production domain. Set the repository variable SITE_URL if it differs.
+          SITE_URL: ${{ inputs.url || vars.SITE_URL || 'https://postgres-fadhul.vercel.app/' }}
