@@ -15,22 +15,55 @@ export async function tapTargetsAtLeast44(page: Page) {
   expect(small, 'tap targets must be at least 44 px tall').toEqual([])
 }
 
-/** Replaces the CodeMirror editor's text by typing, as a learner would. */
+/**
+ * Replaces the CodeMirror editor's text. Goes through CodeMirror's own view (as a paste would), so it
+ * does not depend on which select-all shortcut a browser's emulation honours; falls back to keys.
+ */
 export async function setEditor(page: Page, text: string) {
   const editor = page.locator('.cm-content')
   await editor.click()
-  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
+  const done = await editor.evaluate((el, t) => {
+    type View = { state: { doc: { length: number } }; dispatch: (tr: unknown) => void; focus: () => void }
+    const view = (el as HTMLElement & { cmTile?: { root?: { view?: View } } }).cmTile?.root?.view
+    if (!view) return false
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: t }, selection: { anchor: t.length } })
+    view.focus()
+    return true
+  }, text)
+  if (done) return
+  await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.press('Delete')
   await page.keyboard.insertText(text)
 }
 
+/** Prints page errors, console errors and navigations, so a CI failure log says what the page did. */
+export function watchPage(page: Page) {
+  const tag = `[page ${page.viewportSize()?.width ?? '?'}px]`
+  page.on('pageerror', (e) => console.log(`${tag} pageerror: ${e.message}`))
+  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log(`${tag} console.${m.type()}: ${m.text()}`) })
+  page.on('framenavigated', (f) => { if (f === page.mainFrame()) console.log(`${tag} navigated: ${f.url()}`) })
+}
+
 /** Agrees to the engine download and waits until PostgreSQL is ready with the dataset. */
 export async function startEngine(page: Page) {
-  const start = page.getByRole('button', { name: /Download .* and start|Start PostgreSQL/ }).first()
-  await start.waitFor({ timeout: 15_000 })
-  await start.click()
-  if (await page.getByRole('button', { name: /Download .* and start/ }).count()) {
-    await page.getByRole('button', { name: /Download .* and start/ }).first().click()
+  watchPage(page)
+  try {
+    const start = page.getByRole('button', { name: /Download .* and start|Start PostgreSQL/ }).first()
+    await start.waitFor({ timeout: 15_000 })
+    const label = (await start.textContent()) ?? ''
+    await start.click({ timeout: 30_000 })
+    // "Start PostgreSQL" leads to the consent button; "Download … and start" was the consent itself,
+    // and the button disappears once loading begins, so it must not be clicked twice.
+    if (label.startsWith('Start')) {
+      const download = page.getByRole('button', { name: /Download .* and start/ }).first()
+      const editor = page.locator('.cm-content')
+      await expect(download.or(editor).first()).toBeVisible({ timeout: 30_000 })
+      if (await download.isVisible()) await download.click({ timeout: 30_000 })
+    }
+    await expect(page.locator('.cm-content')).toBeVisible({ timeout: 120_000 })
+  } catch (e) {
+    const text = await page.evaluate(() => document.body.innerText.slice(0, 600)).catch(() => '(page gone)')
+    console.log(`[startEngine] failed; page text:\n${text}`)
+    throw e
   }
-  await expect(page.locator('.cm-content')).toBeVisible({ timeout: 120_000 })
 }

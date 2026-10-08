@@ -19,11 +19,14 @@ export function moduleContent(id: string): ModuleContent | undefined {
   return MODULE_CONTENT[id]
 }
 
+// Built once, so a lesson's ref is the same object on every call: components can depend on it.
+const LESSONS: LessonRef[] = MODULES.flatMap((module) => {
+  const content = MODULE_CONTENT[module.id]
+  return content ? content.lessons.map((lesson, index) => ({ lesson, module, content, index })) : []
+})
+
 export function allLessons(): LessonRef[] {
-  return MODULES.flatMap((module) => {
-    const content = MODULE_CONTENT[module.id]
-    return content ? content.lessons.map((lesson, index) => ({ lesson, module, content, index })) : []
-  })
+  return LESSONS
 }
 
 export function findLesson(id: string): LessonRef | undefined {

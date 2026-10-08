@@ -40,6 +40,18 @@ test('lessons are readable without downloading the engine', async ({ page }) => 
   expect(engine, 'the engine must not download until the learner agrees').toEqual([])
 })
 
+test('a lesson stays where the reader scrolled it', async ({ page }) => {
+  await page.goto('./#/lesson/m01-l02')
+  await expect(page.getByRole('button', { name: 'Mark this lesson done' })).toBeAttached()
+  await page.mouse.wheel(0, 1500)
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500)
+  // The reading-progress bar re-renders on scroll; that must never send the page back to the top.
+  await page.waitForTimeout(500)
+  await page.mouse.wheel(0, 200)
+  await page.waitForTimeout(500)
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(500)
+})
+
 test('the shell and lessons work offline after the first visit', async ({ page, context }) => {
   await page.goto('./')
   const hasSW = await page.evaluate(() => 'serviceWorker' in navigator)
