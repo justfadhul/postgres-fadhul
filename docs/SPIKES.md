@@ -68,14 +68,15 @@ of it is PGlite's IndexedDB overhead.
 2. **The engine is about 5.9 MB gzipped, not under 3 MB.** Measured from the build: `pglite.wasm`
    3.36 MB, `pglite.data` 2.09 MB, the worker 0.14 MB, `initdb.wasm` 0.14 MB and `btree_gist`
    0.02 MB. The site states this figure before downloading, and `npm run check:size` fails if it
-   drifts by more than 10%. Whether the host (now Vercel) compresses `.wasm` and `.data` on the
-   wire is not yet known. The first Vercel checks could not measure it, because they never reached
-   the site: per-deployment URLs sit behind Vercel's Deployment Protection, which redirects to the
-   Vercel login page (`x-matched-path: /login`). The checker followed that redirect and read the
-   login page. It now refuses cross-host redirects, finds the engine files by following references
-   from `index.html` as the browser does, and runs against the public production domain. If the
-   engine is not compressed, the transfer is about 16 MB,
-   and Milestone 1 should ship pre-compressed files (see PLAN.md, Risks).
+   drifts by more than 10%. **Vercel compresses it** (checked 8 October 2026 by
+   `scripts/check-deployed.mjs` against https://postgres-fadhul.vercel.app/, run
+   [37746425092](https://github.com/justfadhul/postgres-fadhul/actions/runs/37746425092)): every
+   engine file comes with Brotli encoding, 5.50 MB on the wire in all (`pglite.wasm` 3.41 MB,
+   `pglite.data` 1.80 MB, `initdb.wasm` 0.15 MB, worker 0.12 MB, `btree_gist` 0.02 MB, already
+   gzipped), with one-year immutable caching. No pre-compressed files are needed. The first checks
+   could not measure this because they never reached the site: per-deployment URLs sit behind
+   Vercel's Deployment Protection, which redirects to the Vercel login page. The checker now
+   refuses cross-host redirects and runs against the public production domain.
 3. **First start runs `initdb`** (about 2 to 3 s of the cold start). Reopening skips it. Shipping
    a pre-initialised data directory could remove it, at the cost of a slightly larger download.
 4. **Safari reports far more storage than the data needs.** `navigator.storage.estimate()`
