@@ -8,10 +8,11 @@ import { locateQuote, quoteAt, trimSelection, type TextQuote } from './anchor'
 
 export type Annotation = AnnotationRecord & { id: string }
 
-export const COLOURS: { id: HighlightColour; label: string; swatch: string }[] = [
-  { id: 'yellow', label: 'Yellow', swatch: 'rgb(255 204 0 / 0.55)' },
-  { id: 'green', label: 'Green', swatch: 'rgb(52 199 89 / 0.4)' },
-  { id: 'pink', label: 'Pink', swatch: 'rgb(255 55 95 / 0.32)' },
+/** `swatch` is the see-through colour painted over text; `solid` is the same colour for buttons. */
+export const COLOURS: { id: HighlightColour; label: string; swatch: string; solid: string }[] = [
+  { id: 'yellow', label: 'Yellow', swatch: 'rgb(255 204 0 / 0.55)', solid: '#ffcc00' },
+  { id: 'green', label: 'Green', swatch: 'rgb(52 199 89 / 0.4)', solid: '#34c759' },
+  { id: 'pink', label: 'Pink', swatch: 'rgb(255 55 95 / 0.32)', solid: '#ff5c80' },
 ]
 
 /** Text that changes while reading (buttons, query results) is not part of the highlightable text. */
@@ -220,19 +221,29 @@ export function AnnotationLayer({ lessonId, article, ready, items }: { lessonId:
   )
 }
 
+/**
+ * On touch screens the bar docks at the bottom, over the tab bar: iOS shows its own Copy / Look Up
+ * menu next to the selection, above or below it, and a page cannot move or hide that menu. With a
+ * mouse there is no such menu, so the bar sits just below the selection.
+ */
 function SelectionBar({ rect, onPress, onPick, onComment }: { rect: DOMRect; onPress: () => void; onPick: (c: HighlightColour) => void; onComment: () => void }) {
-  const width = 236
-  const height = 52
-  // Below the selection, where iOS's own Copy menu is not; above it when there is no room below.
-  const below = rect.bottom + 12 + height < window.innerHeight - 96
-  const top = Math.min(Math.max(8, below ? rect.bottom + 12 : rect.top - height - 12), window.innerHeight - height - 8)
-  const left = Math.min(Math.max(8, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - 8)
+  const docked = window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 960
   const keep = (e: React.PointerEvent | React.MouseEvent) => { e.preventDefault(); onPress() }
+  let style: React.CSSProperties | undefined
+  if (!docked) {
+    const width = 236
+    const height = 52
+    const below = rect.bottom + 12 + height < window.innerHeight - 24
+    const top = Math.min(Math.max(8, below ? rect.bottom + 12 : rect.top - height - 12), window.innerHeight - height - 8)
+    const left = Math.min(Math.max(8, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - 8)
+    style = { top, left, width, height }
+  }
   return (
-    <div role="toolbar" aria-label="Highlight the selected text" className="selection-bar" style={{ top, left, width, height }} onPointerDown={keep} onMouseDown={keep}>
+    <div role="toolbar" aria-label="Highlight the selected text" className={`selection-bar${docked ? ' selection-bar-docked' : ''}`} style={style} onPointerDown={keep} onMouseDown={keep}>
+      {docked && <span className="selection-bar-label">Highlight</span>}
       {COLOURS.map((c) => (
         <button key={c.id} type="button" aria-label={`Highlight ${c.label.toLowerCase()}`} onClick={() => onPick(c.id)}>
-          <span className="swatch" style={{ background: c.swatch }} />
+          <span className="swatch" style={{ background: c.solid }} />
         </button>
       ))}
       <button type="button" className="selection-bar-comment" onClick={onComment}>Comment</button>
@@ -268,7 +279,7 @@ function AnnotationSheet({ annotation, onClose }: { annotation: Annotation; onCl
       <div role="group" aria-label="Colour" style={{ display: 'flex', gap: 8, margin: '4px 0 12px' }}>
         {COLOURS.map((c) => (
           <button key={c.id} type="button" className="icon-btn" aria-label={c.label} aria-pressed={colour === c.id} onClick={() => setColour(c.id)} style={{ outline: colour === c.id ? '2px solid var(--ink)' : undefined, outlineOffset: 2 }}>
-            <span className="swatch" style={{ background: c.swatch }} />
+            <span className="swatch" style={{ background: c.solid }} />
           </button>
         ))}
       </div>

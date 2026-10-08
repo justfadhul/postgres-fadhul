@@ -62,8 +62,10 @@ them as deviations 10 to 12.
 
 ### Check by hand on the iPhone (in addition to the list below)
 
-1. In a lesson, select a few words: does the highlight bar appear below the selection, clear of
-   Safari's own Copy menu? Highlight, comment, then tap the highlight to edit it.
+1. In a lesson, select a few words: the highlight bar now docks at the bottom of the screen, in
+   place of the tab bar, because Safari's own Copy / Look Up menu sits next to the selection and a
+   page cannot move it (first iPhone test, 8 October: the floating bar was hidden under that menu).
+   Highlight, comment, then tap the highlight to edit it.
 2. Aa: change the text size and font; jump to a section.
 3. Settings, **Send to my other device**: does AirDrop or Messages offer the file? On the computer,
    **Add progress from a file**, then send back the other way.
