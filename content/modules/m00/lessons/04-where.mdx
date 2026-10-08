@@ -1,0 +1,158 @@
+A pharmacist does not want every stock row; she wants the ones running low. A clinician wants emergency visits, not all visits. In this lesson you will keep only the rows you need with `WHERE`: comparisons, combining conditions with `AND`, `OR` and `NOT`, lists and ranges, text patterns, and a first look at missing values. You will also meet the most common beginner's error in SQL, and learn to read it.
+
+## Keeping the rows you want
+
+`WHERE` comes after `FROM` and holds a **condition**: an expression that is either true or false for each row. PostgreSQL keeps a row only when the condition is true for it. The comparison operators are:
+
+- `=` equal, and `<>` not equal (`!=` also works)
+- `<` less than, `>` greater than
+- `<=` less than or equal, `>=` greater than or equal
+
+Stock rows with fewer than 50 units on hand, lowest first:
+
+```sql
+SELECT facility_id, drug_id, quantity_on_hand
+FROM stock
+WHERE quantity_on_hand < 50
+ORDER BY quantity_on_hand;
+```
+
+Text values go in single quotes, and comparing text is exact, including capital letters. The visit types are stored in lower case, so this finds nothing, without any error:
+
+```sql
+-- Expect no rows
+SELECT id, visit_at
+FROM visits
+WHERE visit_type = 'Outpatient'
+LIMIT 5;
+```
+
+When a query returns no rows and you expected some, check the exact spelling and case of the values with a `SELECT DISTINCT` first.
+
+## Combining conditions: AND, OR and NOT
+
+- `a AND b` is true when both are true.
+- `a OR b` is true when at least one is true.
+- `NOT a` is true when `a` is false.
+
+Emergency visits at facility 1:
+
+```sql
+SELECT id, visit_at, visit_type
+FROM visits
+WHERE visit_type = 'emergency'
+  AND facility_id = 1
+ORDER BY visit_at
+LIMIT 5;
+```
+
+When you mix `AND` and `OR`, PostgreSQL applies `NOT` first, then `AND`, then `OR`, just as multiplication comes before addition in arithmetic. So `x OR y AND z` means `x OR (y AND z)`. If you mean "emergency or antenatal visits, at facility 1", you need brackets:
+
+```sql
+SELECT id, visit_type, facility_id
+FROM visits
+WHERE (visit_type = 'emergency' OR visit_type = 'antenatal')
+  AND facility_id = 1
+ORDER BY id
+LIMIT 5;
+```
+
+Remove the brackets and run it again. Now emergency visits from every facility slip in, because the `AND` binds only to the antenatal test: the query has become "all emergency visits, plus antenatal visits at facility 1". Write brackets whenever a condition contains both `AND` and `OR`, even when you think you know the rule: the next reader will thank you.
+
+<QuickCheck id="m00-qc-04-1" />
+
+## Lists and ranges: IN and BETWEEN
+
+`IN` tests against a list, and is shorter than a chain of `OR`s. `drug_id IN (1, 3, 5)` means `drug_id = 1 OR drug_id = 3 OR drug_id = 5`:
+
+```sql
+-- Expect 3 rows
+SELECT id, name
+FROM drugs
+WHERE id IN (1, 3, 5)
+ORDER BY id;
+```
+
+`BETWEEN low AND high` tests a range, and **includes both ends**: it means `x >= low AND x <= high`. The low end must come first; `BETWEEN 50 AND 10` matches nothing.
+
+```sql
+SELECT facility_id, drug_id, quantity_on_hand
+FROM stock
+WHERE quantity_on_hand BETWEEN 0 AND 20
+ORDER BY quantity_on_hand;
+```
+
+Including both ends is right for whole numbers and for dates such as `date_of_birth`. It is a trap for moments in time: `visit_at BETWEEN '2025-03-01' AND '2025-03-31'` stops at midnight at the start of 31 March and misses the rest of that day. Lesson 1.7 shows the safe way to select a period of time.
+
+<QuickCheck id="m00-qc-04-2" />
+
+## Patterns: LIKE and ILIKE
+
+`LIKE` matches text against a pattern with two wildcards: `%` stands for any run of characters (including none), and `_` stands for exactly one character. The drugs that come in 500 mg strengths:
+
+```sql
+-- Expect 3 rows
+SELECT name
+FROM drugs
+WHERE name LIKE '%500 mg'
+ORDER BY name;
+```
+
+`LIKE` is case-sensitive. `ILIKE` is the same but ignores case; it is a PostgreSQL addition, not part of standard SQL, so other databases may not have it. Diagnoses whose label mentions an infection, however it is capitalised:
+
+```sql
+-- Expect 2 rows
+SELECT code, label
+FROM diagnoses
+WHERE label ILIKE '%infection%'
+ORDER BY code;
+```
+
+<Note term="Wildcard">A character in a pattern that stands for other characters. In LIKE, % matches any run of characters and _ matches exactly one.</Note>
+
+<QuickCheck id="m00-qc-04-3" />
+
+## Missing values: IS NULL
+
+Some patients have no phone number recorded: their `phone` is NULL. You cannot find them with `=`. Comparing anything with NULL gives an unknown result rather than true, and `WHERE` keeps only true rows:
+
+```sql
+-- Expect no rows
+SELECT id, full_name
+FROM patients
+WHERE phone = NULL;
+```
+
+Use `IS NULL` and `IS NOT NULL` instead, which are made for the job:
+
+```sql
+SELECT id, full_name
+FROM patients
+WHERE phone IS NULL
+ORDER BY id
+LIMIT 5;
+```
+
+That is all you need for now. NULL has more surprises, and lesson 1.6 is devoted to them.
+
+<QuickCheck id="m00-qc-04-4" />
+
+## Common mistake: double quotes around a value
+
+In SQL, single quotes and double quotes mean different things. Single quotes make a value: `'emergency'` is a piece of text. Double quotes make a name: `"emergency"` means a column called emergency.
+
+```sql
+-- Expect error 42703
+SELECT id, visit_at
+FROM visits
+WHERE visit_type = "emergency"
+LIMIT 5;
+```
+
+The error says column `"emergency"` does not exist, which is confusing until you know the rule: PostgreSQL went looking for a column with that name. Change the double quotes to single quotes and it runs. `42703` is the SQLSTATE code for "undefined column", the same error you saw when `WHERE` used an alias in lesson 0.3.
+
+## Free sources
+
+- [PostgreSQL reference: comparison operators, BETWEEN and IS NULL](https://www.postgresql.org/docs/current/functions-comparison.html)
+- [PostgreSQL reference: pattern matching with LIKE and ILIKE](https://www.postgresql.org/docs/current/functions-matching.html)
+- [PostgreSQL tutorial: querying a table, including WHERE](https://www.postgresql.org/docs/current/tutorial-select.html)

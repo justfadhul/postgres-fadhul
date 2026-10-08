@@ -58,6 +58,7 @@ test('a lesson block runs, a quick check records, and the lesson can be marked d
 
   await page.getByRole('button', { name: 'Mark this lesson done' }).click()
   await page.goto('./#/course')
+  await page.getByRole('button', { name: /SQL fluency/ }).click()
   await expect(page.locator('a[href="#/lesson/m01-l01"] .box.done')).toBeVisible()
 })
 

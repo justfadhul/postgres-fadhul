@@ -1,0 +1,155 @@
+A district health officer rarely wants a list of ten thousand patients. She wants one number: how many patients, how many visits last month, how many tablets dispensed. In this lesson you will turn many rows into one with aggregate functions, choose the right kind of count, combine aggregates with `WHERE`, work out a percentage without losing the decimals, and take a first look at `GROUP BY`, which gives one summary row per group.
+
+## Aggregate functions
+
+An **aggregate function** takes the values from many rows and returns a single value. Used without `GROUP BY`, it turns the whole table (or every row that passed `WHERE`) into one result row.
+
+```sql
+-- Expect 1 row
+SELECT count(*) AS patients
+FROM patients;
+```
+
+There are three kinds of count, and they answer different questions:
+
+- `count(*)` counts rows, whatever is in them.
+- `count(column)` counts rows where that column is not NULL.
+- `count(DISTINCT column)` counts the different non-NULL values.
+
+```sql
+SELECT count(*)                AS patients,
+       count(phone)            AS with_phone,
+       count(*) - count(phone) AS without_phone
+FROM patients;
+```
+
+At a single facility, the number of visits and the number of different patients seen are not the same, because many patients come back:
+
+```sql
+SELECT count(*)                   AS visits,
+       count(DISTINCT patient_id) AS patients_seen
+FROM visits
+WHERE facility_id = 1;
+```
+
+<QuickCheck id="m00-qc-06-1" />
+
+## sum, avg, min and max
+
+- `sum(column)` adds the values up.
+- `avg(column)` is the average (the mean).
+- `min(column)` and `max(column)` give the smallest and largest.
+
+Prescriptions of drug 2, paracetamol:
+
+```sql
+SELECT count(*)              AS prescriptions,
+       sum(quantity)         AS units,
+       round(avg(quantity), 1) AS average_units,
+       min(quantity)         AS smallest,
+       max(quantity)         AS largest
+FROM prescriptions
+WHERE drug_id = 2;
+```
+
+The average of whole numbers has a long tail of decimal places, so it is wrapped in `round`. Remove the `round` and run it again to see the difference.
+
+`min` and `max` are not just for numbers: they work on anything that can be sorted, including dates and text. The first and last visits in the data:
+
+```sql
+SELECT min(visit_at) AS first_visit,
+       max(visit_at) AS last_visit
+FROM visits;
+```
+
+All of these except `count(*)` skip NULLs. The average of 2, NULL and 4 is 3, not 2: the NULL is left out, not treated as zero.
+
+## Filter first, then summarise
+
+`WHERE` runs before the aggregates (remember the order from lesson 0.3), so it decides which rows are summarised. Units of paracetamol actually dispensed, not just prescribed:
+
+```sql
+SELECT sum(quantity) AS units_dispensed
+FROM prescriptions
+WHERE drug_id = 2
+  AND dispensed;
+```
+
+`dispensed` is a boolean column, so it can stand on its own as a condition; `AND dispensed = true` means the same.
+
+When no row passes `WHERE`, `count` gives 0, but `sum`, `avg`, `min` and `max` give NULL: there was nothing to add up. Prescriptions are never for more than a few dozen units, so this asks about an empty set of rows:
+
+```sql
+-- Expect 1 row
+SELECT count(*)      AS prescriptions,
+       sum(quantity) AS units
+FROM prescriptions
+WHERE quantity > 1000;
+```
+
+You still get one row, holding 0 and NULL.
+
+<QuickCheck id="m00-qc-06-2" />
+
+Now the percentage from lesson 0.5, on real counts. `count` returns a whole number (type `bigint`), so dividing one count by another is integer division:
+
+```sql
+SELECT count(phone) * 100 / count(*)             AS percent_integer,
+       round(count(phone) * 100.0 / count(*), 1) AS percent_with_phone
+FROM patients;
+```
+
+The first column has lost its decimals. Multiplying by `100.0` makes the calculation `numeric`, and `round` keeps one decimal place.
+
+## A first look at GROUP BY
+
+`GROUP BY` splits the rows into groups, one for each different value of the column you name, and runs the aggregates once per group. You get one result row per group:
+
+```sql
+-- Expect 4 rows
+SELECT visit_type, count(*) AS visits
+FROM visits
+GROUP BY visit_type
+ORDER BY visits DESC;
+```
+
+```sql
+-- Expect 3 rows
+SELECT level, count(*) AS facilities
+FROM facilities
+GROUP BY level
+ORDER BY level;
+```
+
+The rule to remember: once a query groups or aggregates, every column in the `SELECT` list must either be named in `GROUP BY` or sit inside an aggregate function. Lesson 1.2 covers grouping fully: several columns, filtering groups, and how to choose the right count.
+
+## Common mistake: a plain column next to an aggregate
+
+Ask for visit types and a count, but forget `GROUP BY`:
+
+```sql
+-- Expect error 42803
+SELECT visit_type, count(*)
+FROM visits;
+```
+
+The count collapses all visits into one row, but there are several visit types, and PostgreSQL will not pick one for you. The message says `visit_type` must appear in the `GROUP BY` clause or be used in an aggregate function. Add `GROUP BY visit_type` and it runs.
+
+A related slip is putting an aggregate in `WHERE`, for example to keep only busy visit types. `WHERE` runs on single rows before any counting has happened, so this is refused with the same code:
+
+```sql
+-- Expect error 42803
+SELECT visit_type
+FROM visits
+WHERE count(*) > 1000;
+```
+
+Filtering on a count is done with `HAVING`, which lesson 1.2 introduces.
+
+<QuickCheck id="m00-qc-06-3" />
+
+## Free sources
+
+- [PostgreSQL tutorial: aggregate functions](https://www.postgresql.org/docs/current/tutorial-agg.html)
+- [PostgreSQL reference: aggregate functions](https://www.postgresql.org/docs/current/functions-aggregate.html)
+- [PostgreSQL Exercises](https://pgexercises.com/), whose aggregation section has many short practice questions

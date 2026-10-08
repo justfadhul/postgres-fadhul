@@ -1,0 +1,140 @@
+So far you have only read data. A clinic system also records new visits, corrects stock counts and removes mistakes, and a careless change can do real harm: one missing line can set every stock count in the network to zero. In this lesson you will create a small table, add, change and remove rows, watch the database's rules refuse bad data, and use a transaction as an undo button. First, a word on where your changes go on this site.
+
+## Where your changes go
+
+Each runnable example in a lesson runs inside a **transaction** (a group of changes that is kept or undone as a whole; more below) that is undone as soon as the example finishes. So nothing you run from a lesson page changes your data, however destructive it looks. It also means each example must stand on its own: a table created by one example does not exist for the next.
+
+The workbench is different. There, changes are kept, saved in your browser, until you change them back. If you make a mess, the workbench's Reset button rebuilds the clinic data from scratch. It also removes any tables you created in the `clinic` schema, and since `clinic` is first on the search path, that is where a new table goes unless you say otherwise.
+
+## Creating a table
+
+`CREATE TABLE` defines a new table: its name, its columns and their types, and its rules. A **constraint** is a rule the database checks on every change, refusing any change that would break it. The usual ones are:
+
+- `PRIMARY KEY`: unique and never NULL (lesson 0.2).
+- `NOT NULL`: a value must be given.
+- `REFERENCES table (column)`: a foreign key; the value must exist there.
+- `CHECK (condition)`: the condition must not be false.
+
+Here is a small table for logging follow-up phone calls to patients, three rows added to it, and a query to read them back. `INSERT INTO` names the table and the columns you are filling, then `VALUES` gives one bracketed list of values per row, in the same order as the columns.
+
+```sql
+-- Expect 3 rows
+CREATE TABLE follow_up_calls (
+  id          integer PRIMARY KEY,
+  patient_id  integer NOT NULL REFERENCES patients (id),
+  called_on   date NOT NULL,
+  outcome     text NOT NULL CHECK (outcome IN ('reached', 'no answer', 'wrong number')),
+  note        text
+);
+
+INSERT INTO follow_up_calls (id, patient_id, called_on, outcome)
+VALUES (1, 1, '2025-06-02', 'reached'),
+       (2, 2, '2025-06-02', 'no answer'),
+       (3, 3, '2025-06-03', 'reached');
+
+SELECT * FROM follow_up_calls ORDER BY id;
+```
+
+The `note` column was left out of the `INSERT`, so it is NULL in every row. A column you leave out gets its **default** value, which is NULL unless the table says otherwise. To keep this table, run the example in the workbench; `DROP TABLE follow_up_calls;` removes it again.
+
+<Note term="Constraint">A rule stored with a table, such as NOT NULL or CHECK, which the database applies to every insert and update. Module 2 is largely about choosing them well.</Note>
+
+## Changing rows: UPDATE
+
+`UPDATE` changes values in existing rows: `SET` says what the new values are, and `WHERE` says which rows to change. The new value can be worked out from the old one. Ten tablets of paracetamol (drug 2) leave the shelf at facility 1:
+
+```sql
+-- Expect 1 row
+UPDATE stock
+SET quantity_on_hand = quantity_on_hand - 10
+WHERE facility_id = 1
+  AND drug_id = 2
+RETURNING facility_id, drug_id, quantity_on_hand;
+```
+
+`RETURNING` is a PostgreSQL feature that makes `UPDATE`, `INSERT` and `DELETE` show you the rows they changed, as they are after the change. Without it, you would only be told how many rows were changed.
+
+## Removing rows: DELETE
+
+`DELETE FROM` removes rows, and again `WHERE` says which. Visit 1's prescription lines:
+
+```sql
+-- Expect 1 row
+DELETE FROM prescriptions
+WHERE visit_id = 1
+RETURNING id, drug_id, quantity;
+```
+
+Foreign keys protect the other direction too. Try to delete a visit that still has prescriptions pointing at it:
+
+```sql
+-- Expect error 23503
+DELETE FROM visits
+WHERE id = 1;
+```
+
+PostgreSQL refuses, because the prescriptions would be left pointing at a visit that no longer exists.
+
+## Constraints say no
+
+The stock table has a `CHECK` that quantity on hand is never below zero. Try to take 1,000 tablets from a shelf that holds fewer than 500:
+
+```sql
+-- Expect error 23514
+UPDATE stock
+SET quantity_on_hand = quantity_on_hand - 1000
+WHERE facility_id = 1
+  AND drug_id = 2;
+```
+
+The message names the constraint that was broken. All the integrity errors share SQLSTATE codes starting with `23`: `23505` for a duplicate key, `23502` for a missing required value, `23503` for a foreign key and `23514` for a failed check.
+
+A statement either succeeds completely or changes nothing. If an `UPDATE` touches a hundred rows and one of them would break a rule, none of the hundred is changed. You never have to work out which half of a failed statement went through.
+
+<QuickCheck id="m00-qc-07-1" />
+
+## Common mistake: UPDATE or DELETE without WHERE
+
+Leave out the `WHERE`, and the change applies to every row in the table. This runs without complaint:
+
+```sql
+-- Expect 1 row
+UPDATE stock
+SET quantity_on_hand = 0;
+
+SELECT count(*)              AS stock_rows,
+       sum(quantity_on_hand) AS units_left
+FROM stock;
+```
+
+Every stock row in every facility now says zero. In a lesson that is undone at once; in the workbench it is kept, and Reset is your way back. On a real server there is no Reset button.
+
+Two habits prevent this. First, write the `WHERE` as a `SELECT` and look at the rows it finds; only then turn it into an `UPDATE` or `DELETE` with the same `WHERE`. Second, when the change matters, wrap it in a transaction.
+
+<QuickCheck id="m00-qc-07-2" />
+
+## Transactions: an undo button
+
+A **transaction** groups statements so that they take effect together or not at all. `BEGIN` starts one. `COMMIT` makes its changes permanent. `ROLLBACK` undoes every change made since `BEGIN`. Without `BEGIN`, each statement is its own transaction and is committed as soon as it succeeds; this is called **autocommit**. One detail matters in the workbench: when you run several statements in one go without `BEGIN`, PostgreSQL treats the whole batch as a single transaction, so if a later statement fails, the earlier ones in that batch are undone too.
+
+```sql
+BEGIN;
+DELETE FROM stock WHERE facility_id = 1;
+SELECT count(*) AS rows_inside FROM stock WHERE facility_id = 1;
+ROLLBACK;
+SELECT count(*) AS rows_after_rollback FROM stock WHERE facility_id = 1;
+```
+
+Inside the transaction the facility's stock rows are gone; after `ROLLBACK` they are all back. Run from this page, you may also see a warning that a transaction is already in progress. That is because every lesson example already runs inside a transaction (see the start of this lesson), and this `ROLLBACK` ends it. In the workbench the same example runs without the warning.
+
+The habit for real changes: `BEGIN`, make the change, check it with a `SELECT`, then `COMMIT` if it is right or `ROLLBACK` if it is not.
+
+Transactions do much more than undo. They decide what other people see while you are halfway through a change, and what happens when two people change the same row at the same moment. PGlite has only one connection, so nobody else can see your work here; Module 4 explores those questions with two sessions on a real PostgreSQL server in a Codespace.
+
+<QuickCheck id="m00-qc-07-3" />
+
+## Free sources
+
+- [PostgreSQL tutorial: creating a table](https://www.postgresql.org/docs/current/tutorial-table.html) and [populating it with rows](https://www.postgresql.org/docs/current/tutorial-populate.html)
+- [PostgreSQL tutorial: updates](https://www.postgresql.org/docs/current/tutorial-update.html), [deletions](https://www.postgresql.org/docs/current/tutorial-delete.html) and [transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html)
+- [PostgreSQL Exercises](https://pgexercises.com/), whose section on modifying data practises INSERT, UPDATE and DELETE

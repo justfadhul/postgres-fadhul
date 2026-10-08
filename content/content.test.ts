@@ -7,8 +7,8 @@ import { RESOURCES } from './resources'
 import { clinicSeedSql, SIZES } from './datasets/clinic'
 
 describe('syllabus', () => {
-  it('has 11 modules numbered 1 to 11 with unique ids', () => {
-    expect(MODULES.map((m) => m.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+  it('has Module 0 (Foundations) and the 11 course modules, numbered 0 to 11 with unique ids', () => {
+    expect(MODULES.map((m) => m.number)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
     expect(new Set(MODULES.map((m) => m.id)).size).toBe(MODULES.length)
   })
 

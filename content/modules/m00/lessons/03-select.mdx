@@ -1,0 +1,154 @@
+Most of the time you will spend with a database is spent asking it questions: which drugs are stocked, who are the youngest patients, what kinds of visit are recorded. In this lesson you will write `SELECT` queries that choose columns, sort rows, keep only the first few, compute new values, give columns readable names and remove duplicates. You will also learn the order in which PostgreSQL reads the parts of a query, which explains a whole family of confusing errors.
+
+## SELECT and FROM
+
+A query is built from **clauses**: parts that each begin with a keyword. The two you always need are `SELECT`, which lists the columns you want, and `FROM`, which names the table they come from.
+
+```sql
+SELECT full_name, date_of_birth
+FROM patients
+LIMIT 5;
+```
+
+Columns come back in the order you list them, separated by commas. `SELECT *` means every column, in the table's own order. It is handy for a first look at a table, but in a query you will keep, name the columns: the result then cannot change shape if someone adds a column later.
+
+SQL keywords are not case-sensitive: `select`, `SELECT` and `Select` are the same. This course writes keywords in capitals so they stand out. Unquoted table and column names are not case-sensitive either; PostgreSQL turns them into lower case before looking them up, so `FULL_NAME` finds the `full_name` column. Line breaks and spaces are up to you.
+
+`SELECT` does not even need a table. Without `FROM` it works as a calculator:
+
+```sql
+SELECT 2 + 3 AS answer, 'hello' AS greeting;
+```
+
+## Sorting with ORDER BY, and LIMIT
+
+Without `ORDER BY`, PostgreSQL returns rows in whatever order is convenient for it. That order is not guaranteed: it can change when the data changes, or when PostgreSQL picks a different way to run the query. Whenever the order matters, say so.
+
+`ORDER BY` sorts by one or more columns. The default is ascending (`ASC`: smallest, earliest or A first); add `DESC` for descending. With several columns, the second only decides between rows that tie on the first. Here, drugs sorted by unit, and alphabetically within each unit:
+
+```sql
+-- Expect 8 rows
+SELECT name, unit
+FROM drugs
+ORDER BY unit, name;
+```
+
+`LIMIT n` keeps only the first `n` rows of the result. Combined with `ORDER BY`, it answers "top five" questions. The five youngest patients are the ones with the latest dates of birth:
+
+```sql
+SELECT full_name, date_of_birth
+FROM patients
+ORDER BY date_of_birth DESC
+LIMIT 5;
+```
+
+`LIMIT` without `ORDER BY` gives you "some" rows, not "the first" rows. That is fine for a quick look, and wrong for a report.
+
+<QuickCheck id="m00-qc-03-1" />
+
+## Computing values and naming columns
+
+The `SELECT` list can hold **expressions**, not just column names. An expression is anything that produces a value: a column, a number, a calculation, or a **function** call. A function is a named operation that takes inputs, called **arguments**, in brackets and returns a value. A few everyday ones:
+
+- `upper(text)` and `lower(text)` change letter case.
+- `length(text)` counts characters.
+- `round(number, places)` rounds to that many decimal places: `round(2.456, 1)` is `2.5`.
+- `||` joins two pieces of text into one.
+
+A **column alias** gives a result column a name of your choosing, with `AS`. Without one, a computed column gets a name PostgreSQL makes up, such as `upper` or `?column?`.
+
+```sql
+SELECT name,
+       upper(name)  AS shouting,
+       length(name) AS letters
+FROM drugs
+ORDER BY letters DESC
+LIMIT 3;
+```
+
+```sql
+SELECT full_name || ' (' || sex || ')' AS patient,
+       date_of_birth
+FROM patients
+ORDER BY full_name
+LIMIT 5;
+```
+
+An alias follows the same rule as other names: `AS Patient` gives a column called `patient`. To keep capital letters or spaces, put the alias in double quotes: `AS "Patient name"`. The `AS` keyword itself is optional. That is convenient, and it is also the cause of this lesson's common mistake.
+
+## Removing duplicates with DISTINCT
+
+`SELECT DISTINCT` removes repeated rows from the result. There are thousands of visits but only a handful of visit types:
+
+```sql
+-- Expect 4 rows
+SELECT DISTINCT visit_type
+FROM visits
+ORDER BY visit_type;
+```
+
+With several columns, `DISTINCT` keeps each different combination once. This gives every combination of facility and sex that occurs among patients:
+
+```sql
+SELECT DISTINCT facility_id, sex
+FROM patients
+ORDER BY facility_id, sex
+LIMIT 6;
+```
+
+<QuickCheck id="m00-qc-03-2" />
+
+## The order PostgreSQL reads a query
+
+You write the clauses in a fixed order: `SELECT`, `FROM`, `WHERE` (lesson 0.4), `GROUP BY` (lesson 0.6), `ORDER BY`, `LIMIT`. PostgreSQL works through them in a different order, which you can picture like this:
+
+1. `FROM`: find the table's rows.
+2. `WHERE`: keep only the rows that pass the test.
+3. `GROUP BY`: put rows into groups.
+4. `SELECT`: work out each output column, and give it its alias.
+5. `DISTINCT`: remove duplicate rows.
+6. `ORDER BY`: sort.
+7. `LIMIT`: keep the first few.
+
+(PostgreSQL may take shortcuts when it actually runs a query, but the result is always as if it had followed these steps.) One consequence: `ORDER BY` comes after `SELECT`, so it can use an alias, as the drugs query above did with `letters`. `WHERE` comes before `SELECT`, so the alias does not exist yet:
+
+```sql
+-- Expect error 42703
+SELECT full_name, length(full_name) AS name_length
+FROM patients
+WHERE name_length > 12;
+```
+
+The error says column `name_length` does not exist. Repeat the expression instead: `WHERE length(full_name) > 12`.
+
+## Common mistake: the missing comma
+
+A forgotten comma often does not cause an error at all. Here the comma after `full_name` is missing:
+
+```sql
+-- Expect 3 rows
+SELECT full_name sex, date_of_birth
+FROM patients
+LIMIT 3;
+```
+
+It runs. Look at the column headings: there is no `full_name` column, and the column headed `sex` is full of names. Because `AS` is optional, PostgreSQL read `full_name sex` as "the column `full_name`, renamed `sex`". When a result has fewer columns than you asked for, or a heading that does not match its values, look for a missing comma.
+
+The opposite slip, a comma too many before `FROM`, is at least caught at once:
+
+```sql
+-- Expect error 42601
+SELECT full_name, sex,
+FROM patients
+LIMIT 3;
+```
+
+`42601` is the SQLSTATE code for a syntax error: PostgreSQL could not make sense of the words in that order. The message says where it gave up ("at or near FROM"), which is usually just after the real mistake.
+
+<QuickCheck id="m00-qc-03-3" />
+
+## Free sources
+
+- [PostgreSQL tutorial: querying a table](https://www.postgresql.org/docs/current/tutorial-select.html)
+- [PostgreSQL manual: overview of queries](https://www.postgresql.org/docs/current/queries-overview.html)
+- [PostgreSQL Exercises](https://pgexercises.com/), whose first section of basic queries is good practice after this lesson and the next

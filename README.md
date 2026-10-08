@@ -1,6 +1,6 @@
 # Data Systems Mastery
 
-A free, self-study platform for an 11-module course on databases and backend systems, built for
+A free, self-study platform for an 11-module course (plus a beginners' Module 0) on databases and backend systems, built for
 studying on a phone. Lessons, a real PostgreSQL engine in the page (PGlite), auto-graded
 challenges, timed exams and progress tracking, all in a static site with no backend.
 

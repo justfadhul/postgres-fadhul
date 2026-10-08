@@ -17,7 +17,10 @@ test('today shows the next lesson and the course', async ({ page }) => {
   await page.goto('./')
   await expect(page.getByRole('link', { name: /Resume/ }).first()).toBeVisible()
   await page.goto('./#/course')
-  await expect(page.getByRole('button', { name: /SQL fluency/ })).toHaveAttribute('aria-expanded', 'true')
+  // The first unfinished module is open: Foundations, for a new learner.
+  await expect(page.getByRole('button', { name: /Foundations/ })).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('link', { name: /The big picture/ })).toBeVisible()
+  await page.getByRole('button', { name: /SQL fluency/ }).click()
   await expect(page.getByRole('link', { name: /Joins without fear/ })).toBeVisible()
 })
 

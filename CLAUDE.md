@@ -1,6 +1,6 @@
 # Data Systems Mastery
 
-A free, static, offline-capable study platform for an 11-module course on databases and backend
+A free, static, offline-capable study platform for an 11-module course (plus a Module 0, Foundations) on databases and backend
 systems. One learner, studying mostly on an iPhone in iOS Safari on a slow or metered connection.
 Read `docs/BRIEF.md` (the requirements) and `docs/PROGRESS.md` (where things stand) before working.
 Work one milestone at a time and stop for review at the end of each (brief, section 10).

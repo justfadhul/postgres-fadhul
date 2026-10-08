@@ -29,6 +29,17 @@ export const TIER_LABEL: Record<Tier, string> = {
 
 export const MODULES: ModuleOutline[] = [
   {
+    id: 'm00-foundations',
+    number: 0,
+    phase: 1,
+    title: 'Foundations',
+    hours: 6,
+    tier: 'B',
+    topics: ['What databases, SQL and PostgreSQL are', 'Tables, rows, columns and keys', 'SELECT, ORDER BY, LIMIT and DISTINCT', 'Filtering with WHERE', 'Types, literals, casts and NULL', 'Aggregates and a first GROUP BY', 'INSERT, UPDATE, DELETE and transactions'],
+    lab: 'A short practice set of basic queries on the clinic data.',
+    doneWhen: ['All 12 practice queries pass.', 'You can explain primary and foreign keys using the clinic tables.'],
+  },
+  {
     id: 'm01-sql-fluency',
     number: 1,
     phase: 1,

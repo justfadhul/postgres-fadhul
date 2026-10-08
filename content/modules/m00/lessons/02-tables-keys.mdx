@@ -1,0 +1,125 @@
+The clinic data is not one big list. It is eight tables, each holding one kind of thing, linked to each other by numbers. In this lesson you will look inside a table, list the tables and their columns, meet the two kinds of key that hold everything together, and see why splitting facts into separate tables is worth the trouble.
+
+## Tables, rows, columns and values
+
+A **table** is a named set of rows that all have the same columns. A **row** is one record: one patient, one visit, one drug. A **column** is one property that every row has, such as a date of birth, with a name and a **data type** (the kind of value it holds, such as whole numbers, text or dates; lesson 0.5 covers them). A single entry, one column of one row, is a **value**.
+
+Look at a few rows of the patients table. The `*` means "every column"; lesson 0.3 explains the rest of the query.
+
+```sql
+SELECT *
+FROM patients
+LIMIT 5;
+```
+
+Each row is one patient and each column is one fact about them. Some rows may show NULL in the `phone` column. **NULL** means "no value recorded": it is not zero and not an empty piece of text. You will meet it again in lessons 0.4 and 0.5, and properly in lesson 1.6.
+
+## Schemas and the eight clinic tables
+
+In PostgreSQL a **schema** is a named container for tables, a bit like a folder. The clinic tables live in a schema called `clinic`, so the full name of the patients table is `clinic.patients`. Every session here sets a **search path**, the list of schemas PostgreSQL looks in when you give a table name without a prefix, and `clinic` is first on it. That is why plain `patients` works. (The word "schema" is also used for the design of a database as a whole: which tables, which columns, which rules. Module 2 is about that kind of schema.)
+
+PostgreSQL describes itself in tables too. **information_schema** is a built-in set of read-only tables about the database: what tables exist, what columns they have, and so on. This lists the clinic tables:
+
+```sql
+-- Expect 8 rows
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'clinic'
+ORDER BY table_name;
+```
+
+And this lists the columns of `patients`, with each column's data type and whether it may be left empty (`is_nullable`):
+
+```sql
+-- Expect 7 rows
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'clinic'
+  AND table_name = 'patients'
+ORDER BY ordinal_position;
+```
+
+Only `phone` says `YES`: every other column must have a value in every row. In the workbench you can get the same picture more quickly by typing `\d patients`, a shortcut borrowed from `psql`. Shortcuts like that are not SQL, so lesson examples use queries instead.
+
+<QuickCheck id="m00-qc-02-1" />
+
+## Primary keys: one row, one identity
+
+Every clinic table has a **primary key**: the column, or set of columns, whose value identifies exactly one row. A primary key value must be unique within its table and can never be NULL. For patients it is `id`: patient 17 is one particular row, and no other row can be patient 17.
+
+Why not identify patients by name? Because names repeat. The generated data reuses a small list of given names and family names, much as real names repeat in any district. This query counts how often each name appears (it uses `GROUP BY`, which lesson 0.6 introduces):
+
+```sql
+SELECT full_name, count(*) AS patients_with_this_name
+FROM patients
+GROUP BY full_name
+ORDER BY patients_with_this_name DESC
+LIMIT 5;
+```
+
+Your top rows show names shared by several different patients. A number given to each patient once, and never reused for anyone else, avoids that problem entirely. (Module 2 looks at how to generate such numbers safely.)
+
+A primary key can span more than one column. The `stock` table has one row for each drug at each facility, so its key is the pair `(facility_id, drug_id)`. This is called a **composite key**. Facility 1 can appear in many stock rows, and so can drug 2, but the pair "facility 1, drug 2" can appear only once.
+
+<Note term="Key">In databases, a key is a value used to identify or point at rows, not something that unlocks anything.</Note>
+
+## Foreign keys and one-to-many
+
+A **foreign key** is a column whose values must match the primary key of another table (or, occasionally, of the same table). `visits.patient_id` is a foreign key to `patients.id`: every visit must belong to a patient who exists. PostgreSQL keeps a list of every key in its own catalogue. You do not need to understand this query yet; read the `definition` column of the result:
+
+```sql
+-- Expect 19 rows
+SELECT conrelid::regclass AS table_name,
+       pg_get_constraintdef(oid) AS definition
+FROM pg_constraint
+WHERE connamespace = 'clinic'::regnamespace
+  AND contype IN ('p', 'f')
+ORDER BY 1, 2;
+```
+
+Each `FOREIGN KEY (...) REFERENCES ...` line is one link between tables. Notice that `facilities` has a foreign key to itself: `referral_facility_id` names the facility that patients are referred on to.
+
+One patient can have many visits, but each visit belongs to exactly one patient. This shape is called a **one-to-many relationship**, and the foreign key always sits on the "many" side: the visit points at its patient, not the other way round. Here are one patient's visits:
+
+```sql
+SELECT id, patient_id, visit_at, visit_type
+FROM visits
+WHERE patient_id = 1
+ORDER BY visit_at;
+```
+
+The database enforces foreign keys. Try to record a visit for a patient who does not exist, and PostgreSQL refuses. (`INSERT`, which adds rows, is lesson 0.7; for now, run it and read the error.)
+
+```sql
+-- Expect error 23503
+INSERT INTO visits (id, patient_id, facility_id, clinician_id, visit_at, visit_type)
+VALUES (999999999, 999999999, 1, 1, '2025-03-01 09:00', 'outpatient');
+```
+
+The message names the broken rule (`visits_patient_id_fkey`). Every PostgreSQL error also carries a five-character **SQLSTATE** code, here `23503`, which programs use to tell one kind of error from another.
+
+<QuickCheck id="m00-qc-02-2" />
+
+## Why split facts into tables
+
+A visit row stores `facility_id`, a number, not the facility's name and district. The name is stored once, in `facilities`. That design has real benefits: a facility that is renamed changes in one row, not in every one of its visits; a name cannot be spelt two ways; and each visit row stays small. Storing each fact once is the heart of **normalisation**, which Module 2 covers.
+
+The price is that many questions need data from more than one table. To show a visit with its facility's name, you combine the two tables on the shared number. That is a **join**, and lesson 1.1 is all about joins. Here is a preview, so you can see the idea at work:
+
+```sql
+SELECT visits.id, visits.visit_at, facilities.name AS facility
+FROM visits
+JOIN facilities ON facilities.id = visits.facility_id
+ORDER BY visits.id
+LIMIT 3;
+```
+
+The `ON` line says how rows pair up: a visit goes with the facility whose `id` equals the visit's `facility_id`. That is exactly the foreign key from the list above.
+
+<QuickCheck id="m00-qc-02-3" />
+
+## Free sources
+
+- [PostgreSQL tutorial: concepts](https://www.postgresql.org/docs/current/tutorial-concepts.html)
+- [PostgreSQL manual: constraints, including primary and foreign keys](https://www.postgresql.org/docs/current/ddl-constraints.html)
+- [PostgreSQL manual: schemas and the search path](https://www.postgresql.org/docs/current/ddl-schemas.html)

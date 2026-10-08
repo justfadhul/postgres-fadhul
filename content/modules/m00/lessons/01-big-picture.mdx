@@ -1,0 +1,79 @@
+Every clinic keeps records: who came in, what was found, what was prescribed, what is left on the pharmacy shelf. This course is about keeping records like these correct, fast and safe, from the first question you type to systems spread over many machines. This first lesson needs no prior knowledge. By the end you will know what a database and a database management system are, what SQL and PostgreSQL are, how this site runs a real database inside your browser, what the eleven modules cover, and you will have run your first query.
+
+## Data, databases and the software that runs them
+
+**Data** is recorded facts: a patient's date of birth, the time of a visit, the number of tablets on a shelf. A **database** is an organised collection of data, kept so that it can be searched and changed reliably, by many people, for years.
+
+A database does not look after itself. A **database management system** (DBMS) is the software that stores a database, answers questions about it, applies its rules and protects it when things go wrong. PostgreSQL, the system this course uses, is a DBMS. In everyday speech people say "the database" for both the data and the software; this course is careful to separate them only where it matters.
+
+Why not keep clinic records in a spreadsheet? For one person and a few hundred rows, a spreadsheet is fine. As the records grow and more people use them, the gaps show:
+
+- Nothing stops someone typing "malaria" into a column meant for a number, or leaving out a date of birth.
+- The same facility name is typed into thousands of rows, and sooner or later it is spelt three ways.
+- Two people changing the same file at once can overwrite each other's work.
+- If the computer stops halfway through a change of many rows, some rows are changed and some are not.
+
+A DBMS answers each of these: rules that reject bad data, a design that stores each fact once, safe handling of many users at once, and changes that happen completely or not at all. Each of those answers is a module of this course.
+
+<QuickCheck id="m00-qc-01-1" />
+
+## Relational databases and SQL
+
+A **relational database** stores data in **tables**: grids of rows and columns, one table for each kind of thing (patients, visits, drugs). Tables are linked by shared values: a visit row holds the number of the patient it belongs to. Lesson 0.2 looks at this closely.
+
+You talk to a relational database in **SQL** (Structured Query Language; people say "S-Q-L" or "sequel"). A **query** is a question written in SQL, and a **statement** is any complete SQL command, whether it asks a question or changes something. SQL is **declarative**: you describe the result you want, and the DBMS works out the steps to get it. You never tell PostgreSQL which file to open or which row to read first. Module 3 shows how it chooses those steps, and how you can help it choose well.
+
+**PostgreSQL** (often shortened to "Postgres") is a free, open-source relational DBMS. It has been developed in the open for decades and runs everything from small clinic systems to very large services. This site runs PostgreSQL 18. Ask it which version it is:
+
+```sql
+SELECT version();
+```
+
+Your result is one row with one long piece of text. It starts with the PostgreSQL version number and mentions PGlite, which the next section explains.
+
+## Clients, servers and PostgreSQL in your browser
+
+In a hospital system, PostgreSQL normally runs as a **server**: a program on a computer that waits for connections. Your application, or a tool such as `psql` (PostgreSQL's own command-line program), is a **client**: it connects to the server over a network, sends SQL and receives results. Many clients can connect to one server at the same time, and each connection has its own **session**, with its own settings.
+
+This site has no server. It runs **PGlite**, which is PostgreSQL 18 compiled to **WebAssembly**, a format that lets programs written for ordinary computers run inside a web browser. PGlite runs in a **Web Worker**, a background task of the page, so the page stays responsive while a query runs. Your data is saved in your browser's own storage on this device, so it is still there when you come back, and nothing you type is sent anywhere. The first time you open the workbench, the site tells you how big the download is and asks before fetching it; after that it works offline.
+
+<Note term="Workbench">The page where you type and run your own SQL. Lesson examples like the one above also have a Run button; they use the same engine.</Note>
+
+PGlite is real PostgreSQL, so almost everything in Modules 1 to 3 behaves exactly as it would on a server. The main difference is that PGlite has a single connection: only one session at a time. Anything that needs two people working at once, or a real operating system (backups, copying a database to another machine, the storage engine you build in Go), happens in a **Codespace** instead: a Linux computer in the cloud that GitHub lends you, running a full PostgreSQL server. Every exercise in the course is labelled with its tier: **Browser** or **Codespace**. All of Module 0 is Browser tier.
+
+<QuickCheck id="m00-qc-01-2" />
+
+## A map of the course
+
+The eleven modules after this one fall into four phases.
+
+1. **Use the database well** (Modules 1 to 4). Writing SQL fluently; designing tables and the rules that keep data valid; making queries fast with indexes; and keeping data correct when many people change it at the same moment.
+2. **Understand and run it** (Modules 5 to 7). What PostgreSQL does on disk, and how to back it up and recover it; who may see and change what, including Uganda's Data Protection and Privacy Act, 2019; and building a **backend**, the program that sits between an app and its database.
+3. **Build it yourself** (Module 8). Writing a small storage engine in the Go programming language, to see from the inside how a database keeps data safe when the power fails or a process crashes.
+4. **Distribute it** (Modules 9 to 11). Keeping copies of a database on several machines, apps that work offline and catch up later, and a final project that brings it all together.
+
+Module 1 starts with joins and assumes you can already write a basic query. Module 0 gets you to that point.
+
+## The clinic you will query
+
+Every example and exercise uses one **synthetic** dataset: generated by a recipe, describing no real person. It models a network of health facilities in Uganda, at three levels (Health Centre III, Health Centre IV and General Hospital), with their clinicians, patients, visits, diagnoses, drugs, prescriptions and pharmacy stock. Names, dates and numbers are made up and mean nothing, so your results will show values that this text cannot predict.
+
+Two settings are applied at the start of every session. Times are shown in Kampala time (three hours ahead of UTC, written `+03`), and the clinic tables can be named without a prefix: `patients` rather than `clinic.patients`. Lesson 0.2 explains the prefix.
+
+Here is your first real query on the data. It asks for three columns of five patients:
+
+```sql
+SELECT full_name, sex, date_of_birth
+FROM patients
+LIMIT 5;
+```
+
+Read it as a sentence: "select the full name, sex and date of birth, from the patients table, but give me only five rows." The semicolon marks the end of the statement. Change `5` to `10` and run it again; lesson 0.3 takes this apart piece by piece.
+
+<QuickCheck id="m00-qc-01-3" />
+
+## Free sources
+
+- [PostgreSQL tutorial: architectural fundamentals (clients and servers)](https://www.postgresql.org/docs/current/tutorial-arch.html)
+- [PostgreSQL tutorial: concepts (tables, rows and columns)](https://www.postgresql.org/docs/current/tutorial-concepts.html)
+- [CMU 15-445 Intro to Database Systems](https://15445.courses.cs.cmu.edu/), a free university course on how database systems work inside, useful later in the course

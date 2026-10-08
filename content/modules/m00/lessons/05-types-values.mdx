@@ -1,0 +1,131 @@
+A dose of 2.5 mg, a date of birth, a yes-or-no "dispensed" flag and a patient's name are different kinds of value, and PostgreSQL treats them differently: it sorts them differently, calculates with them differently and refuses values that do not fit. In this lesson you will meet the everyday data types, write values correctly in a query, convert between types, and avoid the division that quietly throws away the decimals. The lesson ends with one paragraph on NULL.
+
+## Every column has a type
+
+A **data type** fixes what kind of value a column can hold and what you can do with it. You can list the types of the `visits` columns:
+
+```sql
+-- Expect 7 rows
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'clinic'
+  AND table_name = 'visits'
+ORDER BY ordinal_position;
+```
+
+The types you will use most:
+
+- **integer**: whole numbers, up to about 2.1 billion either side of zero. **bigint** is the same with a far larger range; `visits.id` uses it.
+- **numeric**: exact decimal numbers, with as many digits as you need. Use it for doses and money, where rounding errors are not acceptable.
+- **text**: characters of any length: names, codes, notes.
+- **boolean**: true or false. `prescriptions.dispensed` is one. PostgreSQL shows the values as `t` and `f`.
+- **date**: a calendar date, with no time of day: `date_of_birth`.
+- **timestamptz**: a moment in time (short for "timestamp with time zone"): `visit_at`. It is shown in the session's time zone, which here is Kampala time, `+03`. Lesson 1.7 explains time zones properly.
+
+PostgreSQL refuses a value that does not fit the type it is meant to be. That is one of the ways a database keeps data clean:
+
+```sql
+-- Expect error 22P02
+SELECT 'twelve'::integer;
+```
+
+The `::integer` part asks PostgreSQL to turn the text into a whole number; you will see this properly below. The message, invalid input syntax for type integer, is one you will see often.
+
+## Writing values: literals and quotes
+
+A **literal** is a value written directly into a query. Numbers are written bare: `42`, `2.5`. Text goes in single quotes: `'emergency'`. To put an apostrophe inside a piece of text, write it twice: `'Women''s clinic'`. True and false are written `true` and `false`. A date can be written as text with the type name in front: `date '2025-03-01'`. The function `pg_typeof` tells you what type PostgreSQL gave a value:
+
+```sql
+SELECT 'Women''s clinic'          AS label,
+       pg_typeof(42)              AS whole_number,
+       pg_typeof(2.5)             AS with_decimals,
+       pg_typeof(3000000000)      AS too_big_for_integer,
+       pg_typeof(true)            AS yes_or_no,
+       pg_typeof(date '2025-03-01') AS calendar_date;
+```
+
+A number with a decimal point is `numeric`, exact, rather than an approximate floating-point number (a type you will meet later), and a whole number too large for `integer` becomes `bigint` on its own.
+
+Double quotes are for **identifiers**: the names of tables, columns and aliases. You only need them for a name with capital letters, spaces or other unusual characters, such as the alias `"Patient name"` in lesson 0.3. Single quotes for values, double quotes for names: lesson 0.4 showed what happens when they are swapped.
+
+<QuickCheck id="m00-qc-05-1" />
+
+## Changing a type: casts
+
+A **cast** converts a value from one type to another. PostgreSQL has a short form, `value::type`, and the standard SQL form, `CAST(value AS type)`; they do the same thing.
+
+```sql
+SELECT '42'::integer + 1                AS forty_three,
+       CAST('2025-03-01' AS date) + 30  AS thirty_days_later,
+       date '2025-12-25' - date '2025-03-01' AS days_between,
+       '3.14159'::numeric(4, 2)         AS rounded_to_fit;
+```
+
+Adding a whole number to a date moves it by that many days, and subtracting one date from another gives the number of days between them. `numeric(4, 2)` means at most four digits, two of them after the decimal point, so the value is rounded to fit.
+
+A common use: `visit_at::date` turns a moment into the calendar date it falls on, in the session's time zone.
+
+```sql
+SELECT id, visit_at, visit_at::date AS visit_day
+FROM visits
+ORDER BY id
+LIMIT 3;
+```
+
+Types also decide how values sort and compare. As text, `'10'` comes before `'9'`, because text is compared character by character and `1` comes before `9`. As numbers, 10 is larger. Keep numbers in number columns.
+
+<QuickCheck id="m00-qc-05-2" />
+
+## Arithmetic, and the integer division surprise
+
+The arithmetic operators are `+`, `-`, `*`, `/` and `%` (the remainder after division). One rule catches almost everyone: **an integer divided by an integer gives an integer**, and the fraction is thrown away.
+
+```sql
+SELECT 7 / 2               AS integer_division,
+       7 / 2.0             AS numeric_division,
+       7::numeric / 2      AS cast_first,
+       round(7 / 2.0, 1)   AS rounded,
+       7 % 2               AS remainder;
+```
+
+The first column is `3`, not `3.5`. If either side is `numeric`, the answer keeps its decimals, so writing `2.0`, or casting one side, gives `3.5`. PostgreSQL shows a long run of zeros after numeric division; `round` tidies it.
+
+This matters most for percentages. Suppose 1,598 of 2,000 patients have a phone number recorded:
+
+```sql
+SELECT 1598 / 2000                   AS fraction,
+       100 * 1598 / 2000             AS percent_integer,
+       round(100.0 * 1598 / 2000, 1) AS percent_numeric;
+```
+
+The fraction comes out as `0` and the integer percentage as `79`, when the true answer is 79.9. Nothing warns you. Whenever you divide, ask whether both sides are whole numbers, and if they are, make one of them `numeric`: `100.0 * ...` is the usual trick. You will use this in lesson 0.6 on real counts.
+
+Dividing by zero is an error, not a NULL or an infinity:
+
+```sql
+-- Expect error 22012
+SELECT 10 / 0;
+```
+
+<QuickCheck id="m00-qc-05-3" />
+
+## NULL in one paragraph
+
+**NULL** is a marker for "no value": unknown, or not applicable. It is not zero, and it is not empty text (`''`, which is a value with no characters). Almost any calculation with NULL gives NULL, because a calculation with an unknown input has an unknown answer, and that includes comparisons: `NULL = NULL` is not true but NULL. That is why lesson 0.4 used `IS NULL`.
+
+```sql
+SELECT 1 + NULL      AS plus,
+       NULL = NULL   AS equals,
+       NULL IS NULL  AS is_null,
+       '' IS NULL    AS empty_text_is_null;
+```
+
+Lesson 1.6 covers the rest: how NULL behaves with `AND`, `OR` and `NOT`, and a trap that silently hides rows. Everything in this lesson behaves the same in PGlite as in server PostgreSQL 18.
+
+<QuickCheck id="m00-qc-05-4" />
+
+## Free sources
+
+- [PostgreSQL manual: data types](https://www.postgresql.org/docs/current/datatype.html)
+- [PostgreSQL manual: lexical structure, including literals, quoting and identifiers](https://www.postgresql.org/docs/current/sql-syntax-lexical.html)
+- [PostgreSQL reference: mathematical functions and operators](https://www.postgresql.org/docs/current/functions-math.html)
