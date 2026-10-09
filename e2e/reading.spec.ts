@@ -22,7 +22,7 @@ const painted = (page: Page, name: string) =>
 
 test('highlight, comment, find it again, delete it', async ({ page }) => {
   await page.goto('./#/lesson/m01-l01')
-  await expect(page.locator('article p').first()).toBeVisible()
+  await expect(page.locator('article h2').first()).toBeVisible()
 
   const quote = await selectText(page, 40)
   await page.getByRole('button', { name: 'Highlight green' }).click()
@@ -30,7 +30,7 @@ test('highlight, comment, find it again, delete it', async ({ page }) => {
 
   // Still there after a reload: stored in the browser, found again by its text.
   await page.reload()
-  await expect(page.locator('article p').first()).toBeVisible()
+  await expect(page.locator('article h2').first()).toBeVisible()
   await expect.poll(() => painted(page, 'dsm-green')).toBe(1)
 
   // A comment on another passage.
@@ -81,7 +81,7 @@ test('highlight, comment, find it again, delete it', async ({ page }) => {
 
 test('reading options: contents, text size and font', async ({ page }) => {
   await page.goto('./#/lesson/m01-l02')
-  await expect(page.locator('article p').first()).toBeVisible()
+  await expect(page.locator('article h2').first()).toBeVisible()
   const before = await page.locator('article p').first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
   await page.getByRole('button', { name: /Reading options|Contents and text/ }).click()
   const sheet = page.getByRole('dialog')

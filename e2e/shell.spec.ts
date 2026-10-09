@@ -36,7 +36,7 @@ test('lessons are readable without downloading the engine', async ({ page }) => 
   const engine: string[] = []
   page.on('request', (r) => { if (/pglite.*\.(wasm|data)$/.test(r.url())) engine.push(r.url()) })
   await page.goto('./#/lesson/m01-l01')
-  await expect(page.locator('article p').first()).toBeVisible()
+  await expect(page.locator('article h2').first()).toBeVisible()
   await expect(page.locator('.sql-block').first()).toBeVisible()
   await page.goto('./#/workbench')
   await expect(page.getByText(/downloads the engine|Start PostgreSQL/).first()).toBeVisible()
@@ -45,7 +45,7 @@ test('lessons are readable without downloading the engine', async ({ page }) => 
 
 test('a lesson stays where the reader scrolled it', async ({ page }) => {
   await page.goto('./#/lesson/m01-l02')
-  await expect(page.getByRole('button', { name: 'Mark this lesson done' })).toBeAttached()
+  await expect(page.locator('article h2').first()).toBeVisible()
   // Scrolled from the page, because mobile WebKit in Playwright has no mouse wheel; scroll events fire either way.
   await page.evaluate(() => window.scrollTo(0, 1500))
   await page.waitForTimeout(500)
@@ -64,7 +64,7 @@ test('the shell and lessons work offline after the first visit', async ({ page, 
   await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), { timeout: 15_000 }).toBe(true)
   await context.setOffline(true)
   await page.goto('./#/lesson/m01-l03')
-  await expect(page.locator('article p').first()).toBeVisible()
+  await expect(page.locator('article h2').first()).toBeVisible()
   await page.goto('./#/course')
   await expect(page.getByRole('heading', { level: 1, name: 'Course' })).toBeVisible()
   await context.setOffline(false)

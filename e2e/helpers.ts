@@ -42,6 +42,9 @@ export async function setEditor(page: Page, text: string) {
   await page.keyboard.insertText(text)
 }
 
+// Lesson pages show a "Loading the lesson…" <p> inside the article first; wait for `article h2`
+// (every lesson has sections) before acting on the text.
+
 /** Prints page errors, console errors and navigations, so a CI failure log says what the page did. */
 export function watchPage(page: Page) {
   const tag = `[page ${page.viewportSize()?.width ?? '?'}px]`
